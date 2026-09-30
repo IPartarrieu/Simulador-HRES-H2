@@ -475,6 +475,7 @@ async function optimizar() {
     const seg = (performance.now() - t0) / 1000;
     mostrarResultados(r.mejor.cfg, completo.res, { metodo: METODOS[metodo].nombre, params, semilla, h, usarEnergia, segundos: seg,
       simulaciones: metodo === "ha" ? r.evaluaciones : evaluador.cuenta(), detenido: detener });
+    $("#progreso-barra").style.width = "100%";
     $("#progreso-texto").textContent = `Listo en ${fmt(seg, 1)} s.`;
   } catch (err) {
     $("#progreso-texto").textContent = detener ? "Optimización detenida." : `No se pudo completar la optimización: ${err.message}`;
