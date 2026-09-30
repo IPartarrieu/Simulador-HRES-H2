@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://archive-api.open-meteo.com; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>Simulador HRES-H2 · dimensionamiento de sistemas híbridos con hidrógeno</title>
+<meta name="description" content="Simulador y optimizador del dimensionamiento de un sistema híbrido de energías renovables (eólica y solar) con almacenamiento de energía en forma de hidrógeno. Basado en la tesis de magíster de Ignacio Partarrieu (UdeC, 2026).">
+<link rel="icon" href="assets/icono.svg" type="image/svg+xml">
+<link rel="stylesheet" href="assets/style.css">
+<script src="vendor/chart.umd.min.js" defer></script>
+<script type="module" src="assets/app.js"></script>
+</head>
+<body>
+<header class="top">
+  <div class="wrap top-in">
+    <div>
+      <p class="eyebrow">Tesis de Magíster en Geofísica · Universidad de Concepción</p>
+      <h1>Simulador HRES-H2</h1>
+      <p class="lead">Dimensiona un sistema híbrido de energías renovables con almacenamiento en hidrógeno: elige la demanda, los equipos y el método de optimización, y obtén cuántos aerogeneradores, paneles, conversores, electrolizadores, tanques y celdas de combustible necesitas al menor costo.</p>
+    </div>
+    <div class="top-actions">
+      <button class="btn btn-primary" type="button" id="btn-tesis">Cargar el caso de la tesis</button>
+      <a class="btn btn-ghost" href="#metodo">¿Cómo funciona?</a>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <!-- 1. Demanda -->
+  <section class="card" id="paso-demanda">
+    <div class="card-head"><span class="num">1</span><div><h2>Demanda eléctrica</h2><p class="muted">Serie horaria de un año completo (8760 horas, de enero a diciembre), en kW.</p></div></div>
+    <div class="options" role="radiogroup" aria-label="Fuente de la demanda">
+      <label class="option"><input type="radio" name="demanda" value="huichas" checked><span><b>Isla Las Huichas, 2018</b><small>La demanda de la tesis (Aysén, Chile). Media de 112 kW.</small></span></label>
+      <label class="option"><input type="radio" name="demanda" value="resstock"><span><b>Perfil público de viviendas</b><small>NREL ResStock, Maine 2018 (clima frío costero), escalado a una comunidad.</small></span></label>
+      <label class="option"><input type="radio" name="demanda" value="sintetica"><span><b>Sintética a partir de Las Huichas</b><small>Mantiene la estacionalidad y el ciclo diario, con variaciones aleatorias.</small></span></label>
+      <label class="option"><input type="radio" name="demanda" value="csv"><span><b>Mis datos</b><small>Archivo CSV o de texto con 8760 valores horarios en kW.</small></span></label>
+    </div>
+    <div class="subopts" data-para="resstock" hidden>
+      <label>Viviendas <input type="number" id="rs-viviendas" min="1" max="100000" value="125"></label>
+      <label class="check"><input type="checkbox" id="rs-sur" checked> Llevar las estaciones al hemisferio sur (desplazar medio año)</label>
+    </div>
+    <div class="subopts" data-para="sintetica" hidden>
+      <label>Demanda media (kW) <input type="number" id="sin-media" min="0.1" step="0.1" value="112.1"></label>
+      <label>Variabilidad (%) <input type="number" id="sin-var" min="0" max="80" value="15"></label>
+      <label>Semilla <input type="number" id="sin-semilla" min="1" value="7"></label>
+      <button class="btn btn-small" type="button" id="sin-otra">Generar otra</button>
+    </div>
+    <div class="subopts" data-para="csv" hidden>
+      <label>Archivo <input type="file" id="csv-archivo" accept=".csv,.txt,text/csv,text/plain"></label>
+      <p class="fine">Una columna con la potencia de cada hora (kW), o varias columnas separadas por coma, punto y coma o tabulador: se usa la última columna numérica. Un año bisiesto (8784 valores) se ajusta quitando el 29 de febrero.</p>
+    </div>
+    <p class="status" id="demanda-estado"></p>
+    <div class="chart-box short"><canvas id="graf-demanda" aria-label="Demanda media diaria"></canvas></div>
+  </section>
+
+  <!-- 2. Recurso -->
+  <section class="card" id="paso-recurso">
+    <div class="card-head"><span class="num">2</span><div><h2>Recurso eólico y solar</h2><p class="muted">Con qué datos se calcula la producción de cada aerogenerador y panel.</p></div></div>
+    <div class="options" role="radiogroup" aria-label="Fuente del recurso">
+      <label class="option"><input type="radio" name="recurso" value="tesis" checked><span><b>Serie de la tesis</b><small>Potencia medida in situ en Las Huichas para el Gaia-Wind 11 kW y el panel CS6U-330P. Reproduce los resultados del artículo.</small></span></label>
+      <label class="option"><input type="radio" name="recurso" value="era5"><span><b>Clima de Las Huichas (ERA5)</b><small>Viento, radiación y temperatura de 2018. Permite comparar marcas de equipos.</small></span></label>
+      <label class="option"><input type="radio" name="recurso" value="ubicacion"><span><b>Otra ubicación (ERA5)</b><small>Descarga el clima horario de cualquier punto y año desde Open-Meteo.</small></span></label>
+    </div>
+    <div class="subopts" data-para="ubicacion" hidden>
+      <label>Latitud <input type="number" id="ub-lat" min="-90" max="90" step="0.01" value="-45.15"></label>
+      <label>Longitud <input type="number" id="ub-lon" min="-180" max="180" step="0.01" value="-73.52"></label>
+      <label>Año <input type="number" id="ub-anio" min="1950" max="2025" value="2023"></label>
+      <button class="btn btn-small" type="button" id="ub-cargar">Descargar el clima</button>
+    </div>
+    <p class="status" id="recurso-estado"></p>
+  </section>
+
+  <!-- 3. Arquitectura -->
+  <section class="card" id="paso-arquitectura">
+    <div class="card-head"><span class="num">3</span><div><h2>Arquitectura del sistema</h2><p class="muted">Elige qué módulos incluir. El diagrama se actualiza y puedes descargarlo.</p></div></div>
+    <div class="grid-2">
+      <div>
+        <div class="toggles">
+          <label class="toggle"><input type="checkbox" id="arq-wt" checked><span><b>Aerogeneradores</b><small>Bus AC</small></span></label>
+          <label class="toggle"><input type="checkbox" id="arq-pv" checked><span><b>Paneles fotovoltaicos</b><small>Bus DC</small></span></label>
+          <label class="toggle"><input type="checkbox" id="arq-hess" checked><span><b>Almacenamiento en hidrógeno</b><small>Electrolizadores, tanques y celdas de combustible (bus DC)</small></span></label>
+        </div>
+        <p class="fine">Los conversores DC/AC se incluyen solos cuando hay equipos en el bus DC. La carga está en el bus AC.</p>
+        <p class="status" id="arq-estado"></p>
+      </div>
+      <div>
+        <div class="diagram" id="diagrama"></div>
+        <div class="btns">
+          <button class="btn btn-small" type="button" data-descargar="svg">Descargar SVG</button>
+          <button class="btn btn-small" type="button" data-descargar="png">Descargar PNG</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. Equipos -->
+  <section class="card" id="paso-equipos">
+    <div class="card-head"><span class="num">4</span><div><h2>Equipos</h2><p class="muted">Marca o tipo de cada módulo. Puedes editar sus parámetros técnicos y económicos.</p></div></div>
+    <div class="equipos" id="equipos"></div>
+    <p class="fine">Los valores marcados «tesis» son los del artículo (Tablas 2.2.3 y 2.2.5). Los demás son referenciales, tomados de fichas técnicas y literatura: revísalos antes de usar los resultados para una decisión.</p>
+  </section>
+
+  <!-- 5. Criterios -->
+  <section class="card" id="paso-criterios">
+    <div class="card-head"><span class="num">5</span><div><h2>Economía y confiabilidad</h2><p class="muted">El objetivo es el menor costo nivelado de energía (LCOE) que cumpla la confiabilidad pedida.</p></div></div>
+    <div class="form-grid">
+      <label>Tasa de descuento nominal (%) <input type="number" id="eco-dn" step="0.1" value="8"></label>
+      <label>Inflación esperada (%) <input type="number" id="eco-ie" step="0.1" value="3"></label>
+      <label>Vida del proyecto (años) <input type="number" id="eco-anios" min="1" max="50" value="20"></label>
+      <label>Reserva operativa (% de la demanda) <input type="number" id="eco-reserva" min="0" max="100" value="10"></label>
+      <label>Horas con déficit permitidas al año (LOLE, h) <input type="number" id="conf-h" min="0" max="8760" value="0"></label>
+      <label class="check"><input type="checkbox" id="conf-energia"> Limitar además la energía no suministrada a h × demanda media</label>
+    </div>
+  </section>
+
+  <!-- 6. Optimización -->
+  <section class="card" id="paso-optimizacion">
+    <div class="card-head"><span class="num">6</span><div><h2>Optimización</h2><p class="muted">Busca la cantidad de equipos de cada módulo que minimiza el LCOE.</p></div></div>
+    <div class="grid-2">
+      <div>
+        <label class="block">Método
+          <select id="metodo"></select>
+        </label>
+        <p class="fine" id="metodo-desc"></p>
+        <div class="form-grid tight" id="metodo-params"></div>
+        <div class="btns">
+          <button class="btn btn-small" type="button" id="preset-rapido">Prueba rápida</button>
+          <button class="btn btn-small" type="button" id="preset-tesis">Parámetros de la tesis</button>
+        </div>
+        <div class="form-grid tight">
+          <label>Semilla <input type="number" id="opt-semilla" min="1" value="1"></label>
+          <label>Hilos de cálculo <input type="number" id="opt-hilos" min="1" max="32" value="4"></label>
+        </div>
+        <details class="more">
+          <summary>Límites de búsqueda</summary>
+          <p class="fine">Cantidad mínima y máxima de cada equipo. Se calculan solos a partir de la demanda; para el caso de la tesis se usan los del artículo.</p>
+          <div id="limites"></div>
+          <button class="btn btn-small" type="button" id="limites-auto">Volver a los límites automáticos</button>
+        </details>
+        <p class="status" id="opt-estimado"></p>
+        <div class="btns">
+          <button class="btn btn-primary" type="button" id="btn-optimizar">Optimizar</button>
+          <button class="btn" type="button" id="btn-detener" disabled>Detener</button>
+        </div>
+        <div class="progress" hidden id="progreso"><div class="bar"><span id="progreso-barra"></span></div><p id="progreso-texto" class="fine"></p></div>
+      </div>
+      <div>
+        <div class="chart-box conv"><canvas id="graf-convergencia" aria-label="Convergencia del LCOE"></canvas><p class="placeholder" id="conv-vacio">Aquí verás cómo baja el mejor LCOE mientras se optimiza.</p></div>
+        <details class="more">
+          <summary>Simular una configuración a mano</summary>
+          <p class="fine">Ingresa la cantidad de cada equipo y revisa cómo funcionaría el sistema, sin optimizar.</p>
+          <div class="form-grid tight" id="manual"></div>
+          <button class="btn btn-small" type="button" id="btn-manual">Simular</button>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7. Resultados -->
+  <section class="card" id="resultados" hidden>
+    <div class="card-head"><span class="num">7</span><div><h2>Resultados</h2><p class="muted" id="res-subtitulo"></p></div></div>
+    <div class="kpis" id="kpis"></div>
+    <div class="aviso" id="aviso" role="status" hidden></div>
+    <div class="ref" id="referencia" hidden></div>
+    <div class="table-wrap"><table class="tabla" id="tabla-equipos"></table></div>
+    <div class="res-diagrama">
+      <div>
+        <div class="diagram" id="diagrama-res"></div>
+        <div class="btns">
+          <button class="btn btn-small" type="button" data-descargar-res="svg">Diagrama SVG</button>
+          <button class="btn btn-small" type="button" data-descargar-res="png">Diagrama PNG</button>
+          <button class="btn btn-small" type="button" id="dl-csv">Series horarias (CSV)</button>
+          <button class="btn btn-small" type="button" id="dl-json">Resumen (JSON)</button>
+        </div>
+        <p class="fine" id="dl-csv-nota" hidden>La demanda de Las Huichas es de terceros y se usa con permiso solo dentro del simulador: con ella (o con la serie sintética basada en ella) las series horarias no se descargan.</p>
+      </div>
+    </div>
+    <div class="charts">
+      <div class="chart-box"><h3>Demanda y suministro (media diaria, kW)</h3><canvas id="graf-energia"></canvas></div>
+      <div class="chart-box"><h3>Producción renovable (media diaria, kW)</h3><canvas id="graf-produccion"></canvas></div>
+      <div class="chart-box"><h3>Energía almacenada en hidrógeno (kWh)</h3><canvas id="graf-h2"></canvas></div>
+      <div class="chart-box"><h3>Energía no suministrada y excedentes perdidos (kWh por día)</h3><canvas id="graf-perdidas"></canvas></div>
+      <div class="chart-box"><h3>Costo presente neto por módulo</h3><canvas id="graf-costos"></canvas></div>
+    </div>
+  </section>
+
+  <!-- Método -->
+  <section class="card" id="metodo">
+    <div class="card-head"><span class="num">?</span><div><h2>¿Cómo funciona?</h2></div></div>
+    <div class="prose">
+      <p>Cada hora del año, el algoritmo compara la energía generada por los aerogeneradores (bus AC) y los paneles (bus DC) con la demanda. Si sobra energía, los electrolizadores la convierten en hidrógeno y la guardan en los tanques; si falta, las celdas de combustible la devuelven al sistema. Los conversores DC/AC limitan cuánta energía pasa entre los buses. Todo se simula con eficiencias y capacidades nominales, como en la tesis.</p>
+      <p>El costo se mide con el <b>LCOE</b>: el costo presente neto de todo el proyecto (inversión, reemplazos, operación y mantenimiento, menos el valor residual), anualizado con el factor de recuperación del capital y dividido por la energía suministrada. La confiabilidad se mide con el <b>LOLE</b>: la cantidad de horas del año con demanda sin cubrir.</p>
+      <p>Métodos disponibles:</p>
+      <ul>
+        <li><b>Monte Carlo</b>, <b>algoritmo híbrido</b> (búsqueda caótica, armónica y recocido simulado) y <b>algoritmo genético</b>: los tres de la tesis, con sus mismos operadores y penalización.</li>
+        <li><b>Evolución diferencial adaptativa (SHADE)</b>: método nuevo. Ajusta sola sus parámetros durante la búsqueda, compara soluciones con reglas de factibilidad (una solución que casi cumple vale más que una que falla por mucho) y termina con una búsqueda local entera. Con el mismo número de simulaciones llega a un LCOE menor y con resultados más estables entre corridas.</li>
+      </ul>
+      <p class="fine">La simulación en este sitio reproduce exactamente el código Python de la tesis: mismo LCOE, LOLE, energía suministrada y pérdidas en las configuraciones de prueba del artículo.</p>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <p><b>Simulador HRES-H2</b> · Ignacio Partarrieu Andrade. Basado en la tesis «Dimensionamiento óptimo de un sistema híbrido de energías renovables con un sistema de almacenamiento de energía en forma de hidrógeno» (Magíster en Geofísica, Universidad de Concepción, 2026).</p>
+    <p>Datos: demanda de Isla Las Huichas (base de datos de W. López-Castrillón, usada con permiso solo dentro de este simulador; no se autoriza su descarga ni redistribución); clima ERA5 de Copernicus/ECMWF vía <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a> (CC BY 4.0); perfiles residenciales NREL ResStock (CC BY 4.0). Gráficos con Chart.js (MIT).</p>
+  </div>
+</footer>
+</body>
+</html>
