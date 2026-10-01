@@ -104,6 +104,16 @@ details.more summary, .equipo summary { cursor: pointer; font-size: 14px; font-w
 .charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 24px; margin-top: 24px; }
 .charts .chart-box { height: 300px; padding-bottom: 26px; }
 
+h3.sub { margin: 20px 0 10px; color: var(--ink); font-size: 15.5px; }
+.checks { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+.subopts[data-modo] label:not(.check) { min-width: 260px; }
+.equipo .fuente { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
+.chart-box.pareto { height: 360px; }
+.pareto-tabla { max-height: 360px; overflow-y: auto; margin-top: 16px; }
+.tabla.clic tbody tr { cursor: pointer; }
+.tabla.clic tbody tr:hover { background: var(--accent-soft); }
+.tabla tr.sel { background: var(--accent-soft); font-weight: 600; }
+
 /* Resultados */
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 18px; }
 .kpi { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: #FFFFFF; }
