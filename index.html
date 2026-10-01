@@ -18,7 +18,7 @@
     <div>
       <p class="eyebrow">Tesis de Magíster en Geofísica · Universidad de Concepción</p>
       <h1>Simulador HRES-H2</h1>
-      <p class="lead">Dimensiona un sistema híbrido de energías renovables con almacenamiento en hidrógeno: elige la demanda, los equipos y el método de optimización, y obtén cuántos aerogeneradores, paneles, conversores, electrolizadores, tanques y celdas de combustible necesitas al menor costo.</p>
+      <p class="lead">Dimensiona un sistema híbrido de energías renovables con almacenamiento en hidrógeno: elige la demanda, los equipos y el método de optimización, y obtén cuántos aerogeneradores, paneles, conversores, electrolizadores, tanques, celdas de combustible, baterías y generadores diésel necesitas al menor costo, o el frente de Pareto entre costo y confiabilidad.</p>
     </div>
     <div class="top-actions">
       <button class="btn btn-primary" type="button" id="btn-tesis">Cargar el caso de la tesis</button>
@@ -81,8 +81,10 @@
           <label class="toggle"><input type="checkbox" id="arq-wt" checked><span><b>Aerogeneradores</b><small>Bus AC</small></span></label>
           <label class="toggle"><input type="checkbox" id="arq-pv" checked><span><b>Paneles fotovoltaicos</b><small>Bus DC</small></span></label>
           <label class="toggle"><input type="checkbox" id="arq-hess" checked><span><b>Almacenamiento en hidrógeno</b><small>Electrolizadores, tanques y celdas de combustible (bus DC)</small></span></label>
+          <label class="toggle"><input type="checkbox" id="arq-bat"><span><b>Baterías</b><small>Litio o plomo-ácido (bus DC). Se cargan antes que el electrolizador y se descargan antes que las celdas.</small></span></label>
+          <label class="toggle"><input type="checkbox" id="arq-dg"><span><b>Generadores diésel</b><small>Respaldo en el bus AC, con seguimiento de carga. Su costo depende del combustible que consumen.</small></span></label>
         </div>
-        <p class="fine">Los conversores DC/AC se incluyen solos cuando hay equipos en el bus DC. La carga está en el bus AC.</p>
+        <p class="fine">Los conversores DC/AC se incluyen solos cuando hay equipos en el bus DC. La carga está en el bus AC. Orden de despacho: renovables → baterías → hidrógeno → diésel.</p>
         <p class="status" id="arq-estado"></p>
       </div>
       <div>
@@ -99,25 +101,63 @@
   <section class="card" id="paso-equipos">
     <div class="card-head"><span class="num">4</span><div><h2>Equipos</h2><p class="muted">Marca o tipo de cada módulo. Puedes editar sus parámetros técnicos y económicos.</p></div></div>
     <div class="equipos" id="equipos"></div>
-    <p class="fine">Los valores marcados «tesis» son los del artículo (Tablas 2.2.3 y 2.2.5). Los demás son referenciales, tomados de fichas técnicas y literatura: revísalos antes de usar los resultados para una decisión.</p>
+    <p class="fine">Cada equipo indica su fuente. Los marcados «tesis» usan los valores del artículo (Tablas 2.2.3 y 2.2.5); los que citan un artículo toman de él sus parámetros técnicos y, cuando los informa, sus costos; los demás son referenciales. Revísalos antes de usar los resultados para una decisión.</p>
   </section>
 
   <!-- 5. Criterios -->
   <section class="card" id="paso-criterios">
-    <div class="card-head"><span class="num">5</span><div><h2>Economía y confiabilidad</h2><p class="muted">El objetivo es el menor costo nivelado de energía (LCOE) que cumpla la confiabilidad pedida.</p></div></div>
+    <div class="card-head"><span class="num">5</span><div><h2>Economía y confiabilidad</h2><p class="muted">Qué se minimiza y qué confiabilidad debe cumplir el sistema.</p></div></div>
     <div class="form-grid">
       <label>Tasa de descuento nominal (%) <input type="number" id="eco-dn" step="0.1" value="8"></label>
       <label>Inflación esperada (%) <input type="number" id="eco-ie" step="0.1" value="3"></label>
       <label>Vida del proyecto (años) <input type="number" id="eco-anios" min="1" max="50" value="20"></label>
       <label>Reserva operativa (% de la demanda) <input type="number" id="eco-reserva" min="0" max="100" value="10"></label>
-      <label>Horas con déficit permitidas al año (LOLE, h) <input type="number" id="conf-h" min="0" max="8760" value="0"></label>
-      <label class="check"><input type="checkbox" id="conf-energia"> Limitar además la energía no suministrada a h × demanda media</label>
+      <label>Precio del diésel (USD/L) <input type="number" id="eco-diesel" min="0" step="0.01" value="1"></label>
     </div>
+    <h3 class="sub">Confiabilidad</h3>
+    <div class="form-grid">
+      <label>Criterio
+        <select id="conf-tipo">
+          <option value="lole">Horas con déficit al año (LOLE)</option>
+          <option value="lpsp">Probabilidad de pérdida de suministro (LPSP)</option>
+        </select>
+      </label>
+      <label data-conf="lole">Horas con déficit permitidas al año (h) <input type="number" id="conf-h" min="0" max="8760" value="0"></label>
+      <label data-conf="lpsp" hidden>LPSP máxima (% de la energía demandada) <input type="number" id="conf-lpsp" min="0" max="100" step="0.1" value="1"></label>
+      <label class="check" data-conf="lole"><input type="checkbox" id="conf-energia"> Limitar además la energía no suministrada a h × demanda media</label>
+    </div>
+    <h3 class="sub">Objetivo</h3>
+    <div class="options" role="radiogroup" aria-label="Tipo de optimización">
+      <label class="option"><input type="radio" name="modo" value="uno" checked><span><b>Un objetivo</b><small>La configuración de menor costo que cumple la confiabilidad.</small></span></label>
+      <label class="option"><input type="radio" name="modo" value="mo"><span><b>Multiobjetivo (frente de Pareto)</b><small>Todas las configuraciones en las que no se puede mejorar un objetivo sin empeorar otro.</small></span></label>
+    </div>
+    <div class="subopts" data-modo="uno">
+      <label>Minimizar
+        <select id="obj-unico">
+          <option value="lcoe">Costo nivelado de energía (LCOE)</option>
+          <option value="npc">Costo presente neto (NPC)</option>
+          <option value="capex">Inversión inicial</option>
+        </select>
+      </label>
+    </div>
+    <div class="subopts" data-modo="mo" hidden>
+      <p class="fine">Elige de 2 a 4 objetivos. La confiabilidad de arriba se usa como límite: las configuraciones que no la cumplen quedan fuera del frente (con LPSP como objetivo, usa un límite amplio, por ejemplo 5 %).</p>
+      <div class="checks" id="obj-mo"></div>
+    </div>
+    <details class="more">
+      <summary>Penalizaciones</summary>
+      <p class="fine">Se suman al costo anual antes de calcular el objetivo, para preferir sistemas que desperdicien menos. En 0 no cambian nada.</p>
+      <div class="form-grid">
+        <label>Excedentes perdidos (USD por kWh) <input type="number" id="pen-exc" min="0" step="0.01" value="0"></label>
+        <label>Hidrógeno almacenado que nunca se usa (USD por kWh al año) <input type="number" id="pen-h2" min="0" step="0.01" value="0"></label>
+      </div>
+      <p class="fine">El hidrógeno sin usar es la menor energía que quedó en los tanques durante el año: una reserva que se pagó pero no se ocupó.</p>
+    </details>
   </section>
 
   <!-- 6. Optimización -->
   <section class="card" id="paso-optimizacion">
-    <div class="card-head"><span class="num">6</span><div><h2>Optimización</h2><p class="muted">Busca la cantidad de equipos de cada módulo que minimiza el LCOE.</p></div></div>
+    <div class="card-head"><span class="num">6</span><div><h2>Optimización</h2><p class="muted" id="opt-sub">Busca la cantidad de equipos de cada módulo que minimiza el objetivo elegido.</p></div></div>
     <div class="grid-2">
       <div>
         <label class="block">Método
@@ -147,7 +187,7 @@
         <div class="progress" hidden id="progreso"><div class="bar"><span id="progreso-barra"></span></div><p id="progreso-texto" class="fine"></p></div>
       </div>
       <div>
-        <div class="chart-box conv"><canvas id="graf-convergencia" aria-label="Convergencia del LCOE"></canvas><p class="placeholder" id="conv-vacio">Aquí verás cómo baja el mejor LCOE mientras se optimiza.</p></div>
+        <div class="chart-box conv"><canvas id="graf-convergencia" aria-label="Avance de la optimización"></canvas><p class="placeholder" id="conv-vacio">Aquí verás cómo mejora la solución mientras se optimiza.</p></div>
         <details class="more">
           <summary>Simular una configuración a mano</summary>
           <p class="fine">Ingresa la cantidad de cada equipo y revisa cómo funcionaría el sistema, sin optimizar.</p>
@@ -156,6 +196,23 @@
         </details>
       </div>
     </div>
+  </section>
+
+  <!-- Frente de Pareto -->
+  <section class="card" id="pareto" hidden>
+    <div class="card-head"><span class="num">★</span><div><h2>Frente de Pareto</h2><p class="muted" id="pareto-sub"></p></div></div>
+    <div class="grid-2">
+      <div class="chart-box pareto"><canvas id="graf-pareto" aria-label="Frente de Pareto"></canvas></div>
+      <div>
+        <div class="form-grid tight">
+          <label>Eje horizontal <select id="pareto-x"></select></label>
+          <label>Eje vertical <select id="pareto-y"></select></label>
+        </div>
+        <p class="fine">Haz clic en un punto o en una fila para ver esa configuración completa. La marcada con ★ es la de compromiso: la más cercana al punto ideal (lo mejor de cada objetivo), con los objetivos normalizados.</p>
+        <div class="btns"><button class="btn btn-small" type="button" id="dl-pareto">Frente (CSV)</button></div>
+      </div>
+    </div>
+    <div class="table-wrap pareto-tabla"><table class="tabla clic" id="tabla-pareto"></table></div>
   </section>
 
   <!-- 7. Resultados -->
@@ -179,8 +236,8 @@
     </div>
     <div class="charts">
       <div class="chart-box"><h3>Demanda y suministro (media diaria, kW)</h3><canvas id="graf-energia"></canvas></div>
-      <div class="chart-box"><h3>Producción renovable (media diaria, kW)</h3><canvas id="graf-produccion"></canvas></div>
-      <div class="chart-box"><h3>Energía almacenada en hidrógeno (kWh)</h3><canvas id="graf-h2"></canvas></div>
+      <div class="chart-box"><h3>Producción por fuente (media diaria, kW)</h3><canvas id="graf-produccion"></canvas></div>
+      <div class="chart-box"><h3>Energía almacenada (kWh)</h3><canvas id="graf-h2"></canvas></div>
       <div class="chart-box"><h3>Energía no suministrada y excedentes perdidos (kWh por día)</h3><canvas id="graf-perdidas"></canvas></div>
       <div class="chart-box"><h3>Costo presente neto por módulo</h3><canvas id="graf-costos"></canvas></div>
     </div>
@@ -190,13 +247,17 @@
   <section class="card" id="metodo">
     <div class="card-head"><span class="num">?</span><div><h2>¿Cómo funciona?</h2></div></div>
     <div class="prose">
-      <p>Cada hora del año, el algoritmo compara la energía generada por los aerogeneradores (bus AC) y los paneles (bus DC) con la demanda. Si sobra energía, los electrolizadores la convierten en hidrógeno y la guardan en los tanques; si falta, las celdas de combustible la devuelven al sistema. Los conversores DC/AC limitan cuánta energía pasa entre los buses. Todo se simula con eficiencias y capacidades nominales, como en la tesis.</p>
-      <p>El costo se mide con el <b>LCOE</b>: el costo presente neto de todo el proyecto (inversión, reemplazos, operación y mantenimiento, menos el valor residual), anualizado con el factor de recuperación del capital y dividido por la energía suministrada. La confiabilidad se mide con el <b>LOLE</b>: la cantidad de horas del año con demanda sin cubrir.</p>
+      <p>Cada hora del año, el algoritmo compara la energía generada por los aerogeneradores (bus AC) y los paneles (bus DC) con la demanda. Si sobra energía, primero se cargan las baterías y luego los electrolizadores la convierten en hidrógeno y la guardan en los tanques. Si falta, primero se descargan las baterías, luego las celdas de combustible devuelven la energía del hidrógeno y, al final, los generadores diésel cubren lo que queda. Los conversores DC/AC limitan cuánta energía pasa entre los buses. Sin baterías ni diésel, el despacho es exactamente el de la tesis.</p>
+      <p>El costo se mide con el <b>LCOE</b>: el costo presente neto (NPC) de todo el proyecto (inversión, reemplazos, operación y mantenimiento, menos el valor residual), anualizado con el factor de recuperación del capital y dividido por la energía suministrada. La confiabilidad se mide con el <b>LOLE</b> (horas del año con demanda sin cubrir) o con la <b>LPSP</b> (fracción de la energía demandada que no se suministra).</p>
+      <p><b>Baterías:</b> eficiencia de carga y descarga, estado de carga mínimo (profundidad de descarga), potencia máxima según la tasa C y autodescarga. Su vida es la menor entre la vida de calendario y los ciclos equivalentes que resisten divididos por los ciclos que hacen al año. <b>Diésel:</b> consumo F = a·P + b·P<sub>nominal</sub> (L/h) con a = 0,246 y b = 0,08145 L/kWh (Diab et al., 2019), carga mínima por unidad y vida en horas de operación. Su NPC suma el combustible y la mantención de cada año, que dependen de cuánto funciona, y los reemplazos según las horas acumuladas. También se informan los litros al año, las emisiones (2,68 kg de CO₂ por litro) y la fracción renovable.</p>
       <p>Métodos disponibles:</p>
       <ul>
         <li><b>Monte Carlo</b>, <b>algoritmo híbrido</b> (búsqueda caótica, armónica y recocido simulado) y <b>algoritmo genético</b>: los tres de la tesis, con sus mismos operadores y penalización.</li>
-        <li><b>Evolución diferencial adaptativa (SHADE)</b>: método nuevo. Ajusta sola sus parámetros durante la búsqueda, compara soluciones con reglas de factibilidad (una solución que casi cumple vale más que una que falla por mucho) y termina con una búsqueda local entera. Con el mismo número de simulaciones llega a un LCOE menor y con resultados más estables entre corridas.</li>
+        <li><b>Evolución diferencial adaptativa (SHADE)</b>: ajusta sola sus parámetros durante la búsqueda, compara soluciones con reglas de factibilidad (una solución que casi cumple vale más que una que falla por mucho) y termina con una búsqueda local entera.</li>
+        <li><b>Enjambre de partículas (PSO)</b>, <b>lobo gris (GWO)</b>, <b>algoritmo de la ballena (WOA)</b> y <b>optimizador de equilibrio (EO)</b>: metaheurísticas muy usadas para dimensionar sistemas híbridos. En la literatura, WOA fue el mejor de cuatro métodos en <a href="https://doi.org/10.1109/ACCESS.2019.2936656" target="_blank" rel="noopener noreferrer">Diab et al. (2019)</a> y EO superó a GWO y otros tres en <a href="https://doi.org/10.1109/ACCESS.2021.3051573" target="_blank" rel="noopener noreferrer">Kharrich et al. (2021)</a>. Aquí usan las mismas reglas de factibilidad y el mismo pulido final que SHADE.</li>
+        <li><b>NSGA-II</b> y <b>enjambre de partículas multiobjetivo (MOPSO)</b>: los dos métodos de referencia para frentes de Pareto en estos problemas (ver, por ejemplo, <a href="https://doi.org/10.3390/en15103579" target="_blank" rel="noopener noreferrer">Energies 15:3579, 2022</a>).</li>
       </ul>
+      <p>En el caso de la tesis (h = 0), con 20.000 simulaciones por corrida y 5 semillas: SHADE 1,4548 USD/kWh en todas; PSO 1,4549 en todas; EO y GWO 1,4549 a 1,460; genético 1,469 a 1,534; WOA 1,499 a 1,926; híbrido 1,52 a 1,73; Monte Carlo 1,55 a 1,61. El artículo informa 1,469 con el genético.</p>
       <p class="fine">La simulación en este sitio reproduce exactamente el código Python de la tesis: mismo LCOE, LOLE, energía suministrada y pérdidas en las configuraciones de prueba del artículo.</p>
     </div>
   </section>
