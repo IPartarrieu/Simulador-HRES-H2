@@ -3,7 +3,7 @@
 // el bloque de potencia, en las posiciones de layoutResultado (zona.js). Usa three.js (vendor/three).
 import * as THREE from "../vendor/three/three.module.min.js";
 import { OrbitControls } from "../vendor/three/OrbitControls.js";
-import { proyeccion, centro } from "./zona.js?v=20261015c";
+import { proyeccion, centro } from "./zona.js?v=20261015d";
 
 const N = 64;                                  // grilla de elevación N × N
 const cacheTerreno = new Map();

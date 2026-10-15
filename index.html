@@ -9,10 +9,10 @@
 <meta name="description" content="Simulador y optimizador del dimensionamiento de un sistema híbrido de energías renovables (eólica y solar) con almacenamiento de energía en forma de hidrógeno, para zonas del centro-sur de Chile.">
 <link rel="icon" href="assets/icono.svg" type="image/svg+xml">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="assets/style.css?v=20261015c">
+<link rel="stylesheet" href="assets/style.css?v=20261015d">
 <script src="vendor/chart.umd.min.js" defer></script>
 <script src="vendor/leaflet/leaflet.js" defer></script>
-<script type="module" src="assets/app.js?v=20261015c"></script>
+<script type="module" src="assets/app.js?v=20261015d"></script>
 </head>
 <body>
 <header class="top">
@@ -119,7 +119,7 @@
     </div>
     <div class="subopts" data-para="csv" hidden>
       <label>Archivo <input type="file" id="rec-archivo" accept=".csv,.txt,text/csv,text/plain"></label>
-      <p class="fine">8760 filas (una por hora, de enero a diciembre) con las columnas: temperatura (°C), viento a 10 m (m/s), radiación sobre el plano del panel (W/m²) y, si las tienes, viento a 100 m (m/s) y presión (hPa). Separador: coma, punto y coma o tabulador; las filas de encabezado se ignoran. Sin viento a 100 m se usa un perfil 1/7; sin presión, la de la atmósfera estándar a la elevación media de tu zona.</p>
+      <p class="fine">8760 filas (una por hora, de enero a diciembre) con las columnas: temperatura (°C), viento a 10 m (m/s), radiación sobre el plano del panel (W/m²) y, si las tienes, viento a 100 m (m/s), presión (hPa) y dirección del viento (°, desde donde sopla; permite calcular las estelas con la rosa de vientos). Separador: coma, punto y coma o tabulador; las filas de encabezado se ignoran. Sin viento a 100 m se usa un perfil 1/7; sin presión, la de la atmósfera estándar a la elevación media de tu zona.</p>
     </div>
     <p class="status" id="recurso-estado"></p>
     <div class="nav-pasos"><button class="btn" type="button" data-ir="demanda">← demanda</button><button class="btn btn-primary" type="button" data-ir="arquitectura">Siguiente: arquitectura →</button></div>
@@ -185,7 +185,7 @@
           <label>Terreno aprovechable para mesas (%) <input type="number" id="lay-aprov" min="10" max="100" step="1" value="85"></label>
         </div>
         <div class="kpis compactos" id="lay-kpis"></div>
-        <p class="fine">Las filas de aerogeneradores separadas 5 a 9 diámetros en el eje del viento y 3 a 5 en el transversal mantienen las pérdidas por estela bajas (el simulador no las descuenta). El retiro de una altura de punta (buje + radio) evita que un equipo caiga fuera del terreno. Los paneles miran al norte, inclinados en la latitud, con la distancia entre filas que evita sombras al mediodía del solsticio de invierno. Si usas ambas tecnologías, el optimizador reparte el terreno: cada aerogenerador ocupa su celda de separación y cada panel su parte de la fila; juntos no pueden pasar de la superficie de la zona.</p>
+        <p class="fine">El simulador elige cuáles posiciones de la grilla usar: agrega uno a uno los aerogeneradores que más energía suman al parque, con las estelas (modelo de Jensen) calculadas con la rosa de vientos y la curva de potencia de la serie, y descuenta esas pérdidas en la simulación. Separaciones de 5 a 9 diámetros en el eje del viento y 3 a 5 en el transversal las mantienen bajas. El retiro de una altura de punta (buje + radio) evita que un equipo caiga fuera del terreno. Los paneles miran al norte, inclinados en la latitud, con la distancia entre filas que evita sombras entre las 10 y las 14 h del solsticio de invierno; la sombra que queda fuera de ese horario se descuenta de la producción, y el campo solar evita la sombra de los aerogeneradores. Si usas ambas tecnologías, el optimizador reparte el terreno: cada aerogenerador ocupa su celda de separación y cada panel su parte de la fila; juntos no pueden pasar de la superficie de la zona.</p>
       </div>
     </div>
     <div class="nav-pasos"><button class="btn" type="button" data-ir="arquitectura">← arquitectura</button><button class="btn btn-primary" type="button" data-ir="criterios">Siguiente: economía y confiabilidad →</button></div>
@@ -538,11 +538,27 @@
         <p>La superficie del polígono se calcula sobre la esfera terrestre. La elevación media, mínima y máxima sale del modelo Copernicus DEM (90 m) en hasta 100 puntos. La vista 3D usa las Terrain Tiles de AWS.</p>
       </details>
       <details class="termino"><summary>Distribución de aerogeneradores</summary>
-        <p>Grilla dentro de la zona con separación s<sub>x</sub>·D en el eje del viento y s<sub>y</sub>·D en la dirección transversal (D: diámetro del rotor), con retiro desde el borde igual a un factor por la altura de punta (h<sub>buje</sub> + D/2). Se prueban filas alineadas y escalonadas, y se elige la que deja más posiciones. Las filas se llenan desde el centro de la zona.</p>
+        <p>Grilla dentro de la zona con separación s<sub>x</sub>·D en el eje del viento y s<sub>y</sub>·D en la dirección transversal (D: diámetro del rotor), con retiro desde el borde igual a un factor por la altura de punta (h<sub>buje</sub> + D/2). Se prueban filas alineadas y escalonadas, y se elige la que deja más posiciones. Luego se ordenan las posiciones para maximizar la energía: en cada paso entra la que más suma al parque (su producción con las estelas que recibe, menos lo que su estela quita a los ya instalados). Así, los primeros n aerogeneradores de la lista son el mejor parque de n equipos que encuentra el método. Se evalúan hasta 600 posiciones cercanas al centro y parques de hasta 150 equipos.</p>
+      </details>
+      <details class="termino"><summary>Efecto estela (modelo de Jensen)</summary>
+        <p>Un aerogenerador extrae energía del viento y deja detrás una estela más lenta que se ensancha con la distancia. El simulador usa el modelo de Jensen (Katić, 1986), el de WAsP y de la mayoría de los programas de diseño de parques, con coeficiente de empuje C<sub>T</sub> = 0,8 y expansión k = 0,075 (terreno abierto). El déficit en un rotor a la distancia x aguas abajo es proporcional al área del rotor que cae dentro de la estela, y los déficits de varias estelas se suman en cuadratura:</p>
+        <p class="ecuacion">δ = (1 − √(1 − C<sub>T</sub>)) · ( R / (R + k·x) )² · A<sub>solape</sub>/A<sub>rotor</sub> &nbsp;&nbsp; δ<sub>total</sub> = √( Σ δ<sub>i</sub>² ) &nbsp;&nbsp; v = v<sub>libre</sub> · (1 − δ<sub>total</sub>)</p>
+        <p>Las estelas se calculan en 36 sectores de 10°. Con la dirección horaria del viento (ERA5 a 100 m o tu archivo), cada hora usa la eficiencia de su sector; si el recurso no trae la dirección, se usa una rosa de dos lóbulos centrada en el eje dominante. La potencia con el viento reducido sale de la misma curva del aerogenerador, con la densidad del aire de cada hora.</p>
+        <p class="ecuacion">η<sub>parque</sub>(n) = Σ<sub>t</sub> Σ<sub>i≤n</sub> P(v<sub>t</sub>(1 − δ<sub>i</sub>)) / ( n · Σ<sub>t</sub> P(v<sub>t</sub>) ) &nbsp;&nbsp; P<sub>WT,t</sub> = n · P<sub>1,t</sub> · η<sub>sector(t)</sub>(n)</p>
+        <p class="en-sim">HOMER aplica las pérdidas por estela como un porcentaje fijo que ingresa el usuario. Aquí dependen de la distribución, del número de aerogeneradores y del viento de cada hora, y el optimizador las ve al probar cada configuración. No se modela el efecto del relieve sobre el viento (aceleración en lomas).</p>
       </details>
       <details class="termino"><summary>Filas de paneles y GCR</summary>
-        <p>Los paneles miran al norte con inclinación β (la latitud). La distancia entre filas evita sombras al mediodía del solsticio de invierno, cuando el sol está a la altura α:</p>
-        <p class="ecuacion">α = 90° − |lat| − 23,45° &nbsp;&nbsp; GCR = 1 / ( cos β + sen β / tan α ) &nbsp;&nbsp; A<sub>panel</sub> = A<sub>módulo</sub> / (GCR · aprovechamiento)</p>
+        <p>Los paneles miran al norte con inclinación β (la latitud). La distancia entre filas evita sombras entre las 10 y las 14 h solares del 21 de junio (criterio usual de diseño). Lo fija el ángulo de perfil α<sub>p</sub>, la altura del sol vista en el plano norte-sur, a las 10 h de ese día:</p>
+        <p class="ecuacion">tan α<sub>p</sub> = tan α<sub>sol</sub> / cos γ<sub>sol</sub> &nbsp;&nbsp; GCR = 1 / ( cos β + sen β / tan α<sub>p</sub> ) &nbsp;&nbsp; A<sub>panel</sub> = A<sub>módulo</sub> / (GCR · aprovechamiento)</p>
+      </details>
+      <details class="termino"><summary>Sombra entre filas</summary>
+        <p>Fuera de ese horario, en invierno, cada fila sombrea la parte baja de la siguiente. La fracción sombreada de la mesa y la pérdida anual se calculan con la posición del sol cada media hora, día por medio, y radiación de cielo despejado (haz directo de Meinel y difusa isotrópica, que no se pierde):</p>
+        <p class="ecuacion">f<sub>s</sub> = máx(0, 1 − sen α<sub>p</sub> / (GCR · sen(α<sub>p</sub> + β))) &nbsp;&nbsp; pérdida = Σ f<sub>s</sub> · G<sub>haz</sub> / Σ G<sub>total</sub></p>
+        <p class="en-sim">La producción fotovoltaica se multiplica por (1 − pérdida) cuando se usa la zona. Con cielo despejado la estimación es conservadora: con nubes hay menos haz directo y la pérdida real es menor.</p>
+      </details>
+      <details class="termino"><summary>Sombra de los aerogeneradores sobre los paneles</summary>
+        <p>La torre proyecta una franja de sombra y el rotor, al girar, tapa en promedio su solidez (alrededor de 6 % del área barrida). Para cada celda del campo solar se suma, a lo largo del año, la radiación directa que tapan los aerogeneradores cercanos, con la sombra del buje a la distancia h<sub>buje</sub>/tan α<sub>sol</sub> en dirección opuesta al sol (hacia el sur).</p>
+        <p class="en-sim">Las celdas que pierden más de 0,5 % al año quedan para el final: el campo solar se arma primero en terreno sin sombra. La pérdida promedio del campo elegido se informa junto al layout.</p>
       </details>
       <details class="termino"><summary>Restricción de terreno</summary>
         <p class="ecuacion">n<sub>WT</sub> · s<sub>x</sub> s<sub>y</sub> D² + n<sub>PV</sub> · A<sub>panel</sub> ≤ A<sub>zona</sub></p>

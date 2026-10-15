@@ -1,6 +1,6 @@
 // Series de entrada: demanda horaria (8760 h) y recurso meteorológico.
-import { rng } from "./optimizers.js?v=20261015c";
-import { decodificarSerie } from "./codec.js?v=20261015c";
+import { rng } from "./optimizers.js?v=20261015d";
+import { decodificarSerie } from "./codec.js?v=20261015d";
 
 export const HORAS = 8760;
 
@@ -91,6 +91,7 @@ export async function climaOpenMeteo({ lat, lon, anio }) {
   const clima = {
     temp_c: limpiar(h.temperature_2m), presion_hpa: limpiar(h.surface_pressure),
     v10_ms: limpiar(h.wind_speed_10m), v100_ms: limpiar(h.wind_speed_100m), gti_wm2: limpiar(h.global_tilted_irradiance),
+    dir100_deg: limpiar(h.wind_direction_100m),
   };
   if (clima.gti_wm2.length < HORAS) throw new Error("Open-Meteo no entregó un año completo para ese punto.");
   Object.assign(clima, ejeViento(h.wind_speed_100m, h.wind_direction_100m));
@@ -118,7 +119,7 @@ export async function climaEstacion(id) {
 }
 
 // Series propias: columnas temperatura (°C), viento a 10 m (m/s), radiación sobre el panel (W/m²) y, si están,
-// viento a 100 m (m/s) y presión (hPa). Sin viento a 100 m se usa el perfil 1/7; sin presión, la atmósfera
+// viento a 100 m (m/s), presión (hPa) y dirección del viento (°, desde donde sopla). Sin viento a 100 m se usa el perfil 1/7; sin presión, la atmósfera
 // estándar a la elevación dada.
 export function climaCSV(texto, nombreArchivo = "series propias", elevacionM = 0) {
   const filas = [];
@@ -135,6 +136,7 @@ export function climaCSV(texto, nombreArchivo = "series propias", elevacionM = 0
     v100_ms: filas.map((f) => (Number.isFinite(f[3]) ? Math.max(0, f[3]) : Math.max(0, f[1]) * Math.pow(10, 1 / 7))),
     presion_hpa: filas.map((f) => (Number.isFinite(f[4]) && f[4] > 300 ? f[4] : p0)),
   };
+  if (filas.every((f) => Number.isFinite(f[5]))) Object.assign(clima, { dir100_deg: filas.map((f) => ((f[5] % 360) + 360) % 360) }, ejeViento(clima.v100_ms, filas.map((f) => f[5])));
   return { clima, nombre: nombreArchivo };
 }
 

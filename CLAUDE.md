@@ -22,7 +22,7 @@ Plan: primero se publica en el GitHub personal (cuenta `IPartarrieu`); después 
 
 ## Zona y distribución
 
-- `assets/zona.js`: mapa Leaflet (`vendor/leaflet`), región de prueba como rectángulo (`REGION`), área máxima `AREA_MAX_KM2`, elevación con `api.open-meteo.com/v1/elevation`. `distribuirAerogeneradores` arma la grilla (sx·D × sy·D, filas perpendiculares a `eje`); `distribucionPaneles` da el m² por panel según el GCR sin sombras en junio.
+- `assets/zona.js`: mapa Leaflet (`vendor/leaflet`), región de prueba como rectángulo (`REGION`), área máxima `AREA_MAX_KM2`, elevación con `api.open-meteo.com/v1/elevation`. `distribuirAerogeneradores` arma la grilla (sx·D × sy·D, filas perpendiculares a `eje`); `distribucionPaneles` da el m² por panel según el GCR sin sombras de 10 a 14 h en junio y la pérdida anual por sombra entre filas (`sombraFilas`). `estelaParque` (Jensen, 36 sectores, `dir100_deg` horaria o rosa estimada) ordena las posiciones por energía y da `eta` por n y sector, que `simular` aplica vía `caso.estela`.
 - La restricción de terreno entra al modelo como `caso.terreno = { area, aWt, aPv }` y suma a `violacion` (`excesoTerreno`). Sin zona es `null` y el motor queda igual al de la tesis.
 - La CSP permite además las teselas de OpenStreetMap, OpenTopoMap y Esri, y `api.open-meteo.com`.
 

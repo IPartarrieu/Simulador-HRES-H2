@@ -1,10 +1,10 @@
 // Página del Simulador HRES-H2: arma el caso con lo que elige la persona, reparte las simulaciones entre
 // Web Workers, ejecuta el método de optimización (uno o varios objetivos) y muestra los resultados.
-import { CATALOGO, MODULOS, NOMBRES, ECONOMIA_TESIS, FUENTES, OBJETIVOS_MO, potenciaPV, potenciaWT, limitesPorDefecto, flujoCaja, crf, tasaReal } from "./model.js?v=20261015c";
-import { monteCarlo, genetico, shade, pso, gwo, woa, eo, nsga2, mopso, aptitud, PENALIZACION } from "./optimizers.js?v=20261015c";
-import * as dem from "./demand.js?v=20261015c";
-import { svgDiagrama, svgLayout, descargarSVG, descargarPNG, descargar } from "./diagram.js?v=20261015c";
-import * as zona from "./zona.js?v=20261015c";
+import { CATALOGO, MODULOS, NOMBRES, ECONOMIA_TESIS, FUENTES, OBJETIVOS_MO, potenciaPV, potenciaWT, limitesPorDefecto, flujoCaja, crf, tasaReal } from "./model.js?v=20261015d";
+import { monteCarlo, genetico, shade, pso, gwo, woa, eo, nsga2, mopso, aptitud, PENALIZACION } from "./optimizers.js?v=20261015d";
+import * as dem from "./demand.js?v=20261015d";
+import { svgDiagrama, svgLayout, descargarSVG, descargarPNG, descargar } from "./diagram.js?v=20261015d";
+import * as zona from "./zona.js?v=20261015d";
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -124,7 +124,7 @@ const estado = {
   zona: null,           // { pts, area (m²), centro, elev }
 };
 let mapaZona = null, mapaLayout = null, vista3d = null, turno3d = 0;
-const cacheLayout = {};
+const cacheLayout = {}, cacheEstela = {};
 let pool = null, detener = false;
 const graficos = {};
 
@@ -416,12 +416,27 @@ function distribucion() {
   if (cacheLayout.clave !== clave) Object.assign(cacheLayout, { clave, lay: zona.distribuirAerogeneradores(z.pts, op) });
   const lay = cacheLayout.lay;
   const paneles = zona.distribucionPaneles(z.centro[0], { areaPanelM2: pv.pr / (pv.eff / 100), aprovechamiento: Math.min(1, Math.max(0.1, num("#lay-aprov") / 100)) });
+  const estela = cacheEstela.lay === lay && cacheEstela.wt === JSON.stringify(wt) && cacheEstela.fuente === fuenteViento() ? cacheEstela.val : null;
   return {
-    ...lay, paneles, op,
+    ...lay, paneles, op, estela, posiciones: estela ? estela.orden : lay.posiciones,
     nWt: lay.demasiadas ? Math.floor(z.area / lay.celdaM2) : lay.posiciones.length,
     nPv: Math.floor(z.area / paneles.m2PorPanel),
   };
 }
+// Estelas del parque con la grilla actual y el viento del recurso (se recalcula solo si cambia algo).
+const fuenteViento = () => (estado.recurso === "tesis" || estado.recurso === "era5" ? estado.recurso : estado.clima);
+async function estelaActual(d) {
+  if (!d || d.demasiadas || !d.posiciones.length || !estado.arq.wt) return null;
+  const clima = estado.recurso === "tesis" ? (await dem.datosEjemplo()).era5 : await climaActual();
+  if (!clima) return null;
+  const lay = cacheLayout.lay, wt = JSON.stringify(estado.equipos.wt);
+  if (cacheEstela.lay !== lay || cacheEstela.wt !== wt || cacheEstela.fuente !== fuenteViento()) {
+    const val = zona.estelaParque(estado.zona.pts, lay.posiciones, { D: d.op.D, wt: estado.equipos.wt, clima, eje: d.op.eje });
+    Object.assign(cacheEstela, { lay, wt, fuente: fuenteViento(), val });
+  }
+  return cacheEstela.val;
+}
+
 function terreno() {
   const d = $("#lay-usar").checked ? distribucion() : null;
   return d ? { area: estado.zona.area, aWt: estado.arq.wt ? d.celdaM2 : 0, aPv: estado.arq.pv ? d.paneles.m2PorPanel : 0, nWt: d.nWt, nPv: d.nPv } : null;
@@ -436,11 +451,15 @@ function renderDistribucion() {
   const usados = r && r.zona === z ? r.cfg[0] : 0;
   if (!mapaLayout && typeof L !== "undefined" && !$("#panel-equipos").hidden) mapaLayout = zona.mapaDistribucion($("#mapa-layout"));
   mapaLayout?.pintar(z.pts, d.posiciones, usados, wt.rotor / 2);
-  const p = d.paneles;
+  const p = d.paneles, e = d.estela;
+  if (!e && estado.arq.wt) estelaActual(d).then((x) => x && renderDistribucion()).catch((err) => console.error(err));
+  const efic = e && [1, 5, 10, 25, e.nMax].filter((n, i, a) => n <= e.nMax && a.indexOf(n) === i)
+    .map((n) => `${n} → ${fmt(zona.eficienciaParque(e, n) * 100, 1)} %`).join(" · ");
   $("#lay-kpis").replaceChildren(
     kpi("Aerogeneradores que caben", fmt(d.nWt), `${fmt(d.nWt * wt.pr)} kW · celda de ${fmt(d.celdaM2)} m² c/u${d.demasiadas ? " (estimado, demasiados para dibujar)" : ""}`),
     kpi("Paneles que caben", fmt(d.nPv), `${fmt((d.nPv * pv.pr) / 1000, 2)} MW · ${fmt(p.m2PorPanel, 1)} m² por panel`),
-    kpi("Filas de paneles", `${fmt(p.beta)}° de inclinación`, `ocupación ${fmt(p.gcr * 100)} % (GCR); sol a ${fmt(p.alfa, 1)}° en junio`));
+    kpi("Filas de paneles", `${fmt(p.beta)}° de inclinación`, `ocupación ${fmt(p.gcr * 100)} % (GCR); sin sombra de 10 a 14 h en junio (perfil ${fmt(p.alfa, 1)}°); pérdida anual por sombra entre filas ${fmt(p.sombra * 100, 1)} %`),
+    ...(e ? [kpi("Eficiencia del parque (estelas)", `${fmt(zona.eficienciaParque(e, Math.min(10, e.nMax)) * 100, 1)} % con ${fmt(Math.min(10, e.nMax))}`, `aerogeneradores → energía respecto de sin estelas: ${efic}${e.conDireccion ? "" : " (rosa estimada con el eje dominante)"}`)] : []));
 }
 
 function renderDiagrama() {
@@ -620,7 +639,7 @@ class Pool {
   constructor(n) {
     this.pend = new Map(); this.id = 0;
     this.workers = Array.from({ length: n }, () => {
-      const w = new Worker(new URL("./worker.js?v=20261015c", import.meta.url), { type: "module" });
+      const w = new Worker(new URL("./worker.js?v=20261015d", import.meta.url), { type: "module" });
       w.onmessage = (e) => {
         const p = this.pend.get(e.data.id);
         if (!p) return;
@@ -679,9 +698,11 @@ function haEnPool(p, limites, params, semilla, alProgresar) {
 
 async function armarCaso() {
   const s = await seriesUnidad();
-  const t = terreno();
-  return { demanda: Array.from(estado.demanda), wtKw: Array.from(s.wt), pvKw: Array.from(s.pv), equipos: clonar(estado.equipos), economia: leerEconomia(),
-    terreno: t && { area: t.area, aWt: t.aWt, aPv: t.aPv } };
+  const t = terreno(), d = t && distribucion();
+  const est = d && (await estelaActual(d));
+  const fPv = d ? 1 - d.paneles.sombra : 1;                     // sombra entre filas
+  return { demanda: Array.from(estado.demanda), wtKw: Array.from(s.wt), pvKw: Array.from(s.pv, (x) => x * fPv), equipos: clonar(estado.equipos), economia: leerEconomia(),
+    terreno: t && { area: t.area, aWt: t.aWt, aPv: t.aPv }, estela: est && { eta: est.eta, sec: est.sec, S: est.S, nMax: est.nMax } };
 }
 
 let ultimoGrafico = 0;
@@ -1012,7 +1033,7 @@ function renderLayoutResultado(cfg, r, meta) {
   }
   const pv = equipos.pv, areaMod = pv.pr / (pv.eff / 100), p = dist.paneles;
   const pitch = (2 * Math.sqrt(areaMod * 1.75)) / p.gcr;          // mesas de 2 paneles en vertical
-  const geo = zona.layoutResultado(z.pts, { posiciones: dist.posiciones, ...dist.op, nWt: Math.min(cfg[0], dist.posiciones.length), areaPv: cfg[1] * p.m2PorPanel });
+  const geo = zona.layoutResultado(z.pts, { posiciones: dist.posiciones, ...dist.op, nWt: Math.min(cfg[0], dist.posiciones.length), areaPv: cfg[1] * p.m2PorPanel, hub: equipos.wt.hub, beta: p.beta });
   const bloque = ["con", "ele", "ht", "fc", "bat", "dg"].map((k) => [k, MODULOS.indexOf(k)]).filter(([, i]) => cfg[i] > 0)
     .map(([k, i]) => `${NOMBRES[k][0].toLowerCase()}${NOMBRES[k].slice(1)} ${capacidad(k, cfg[i], equipos)}`);
   const leyenda = [["zona", `Zona: ${fmt(z.area / 1e4, 1)} ha`]];
@@ -1027,7 +1048,12 @@ function renderLayoutResultado(cfg, r, meta) {
   if (dist.demasiadas && cfg[0]) notas.push("Hay demasiadas posiciones posibles para dibujar los aerogeneradores: aumenta la separación o reduce la zona.");
   else if (cfg[0] > dist.posiciones.length) notas.push(`Solo caben ${fmt(dist.posiciones.length)} de los ${fmt(cfg[0])} aerogeneradores.`);
   if (!geo.completo) notas.push("El campo fotovoltaico no cabe completo en el terreno que dejan libre los aerogeneradores.");
-  notas.push("Los aerogeneradores ocupan primero las filas perpendiculares al viento; los paneles se agrupan alrededor del bloque de potencia para acortar el cableado. Es un anteproyecto: el trazado final requiere topografía, accesos y estudio de estelas.");
+  const perd = [];
+  if (cfg[0] && dist.estela) perd.push(`estelas entre aerogeneradores ${fmt((1 - zona.eficienciaParque(dist.estela, cfg[0])) * 100, 1)} % de la energía eólica`);
+  if (cfg[1]) perd.push(`sombra entre filas ${fmt(p.sombra * 100, 1)} %`);
+  if (cfg[0] && cfg[1]) perd.push(`sombra de los aerogeneradores sobre los paneles ${fmt(geo.sombraPv * 100, 2)} %`);
+  if (perd.length) notas.push(`Pérdidas: ${perd.join("; ")}.${cfg[0] && cfg[1] ? " La última no se descuenta en la simulación." : ""}`);
+  notas.push("Los aerogeneradores están en las posiciones que más energía dan con las estelas de la rosa de vientos; los paneles se agrupan alrededor del bloque de potencia, fuera de la sombra de los aerogeneradores. Es un anteproyecto: el trazado final requiere topografía, accesos y un estudio de viento en terreno.");
   $("#layout-nota").textContent = notas.join(" ");
 }
 
@@ -1039,7 +1065,7 @@ async function mostrar3D(op) {
   const ley = $("#leyenda-3d"); ley.replaceChildren();
   const chip = (color, texto) => { const s = document.createElement("span"), i = document.createElement("i"); i.style.background = color; s.append(i, texto); ley.appendChild(s); };
   try {
-    const m = await import("./escena3d.js?v=20261015c");
+    const m = await import("./escena3d.js?v=20261015d");
     chip("#FF8A3D", "Zona");
     if (op.cfg[0]) chip("#F7F8FA", `Aerogeneradores (${fmt(op.cfg[0])})`);
     if (op.cfg[1]) chip("#2456A6", `Paneles (${fmt(op.cfg[1])})`);

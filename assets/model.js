@@ -114,12 +114,13 @@ export function potenciaPV(pv, gti, tempC) {
 
 // Aerogenerador (ec. 2.2.4 a 2.2.6): viento a la altura del buje (ley potencial con el perfil 10-100 m de cada hora),
 // curva lineal entre la velocidad de arranque y la nominal, y corrección por densidad del aire.
-export function potenciaWT(wt, v10, v100, tempC, presionHpa) {
+// f: fracción del viento que llega (1 − déficit por estela).
+export function potenciaWT(wt, v10, v100, tempC, presionHpa, f = 1) {
   const out = new Float64Array(v10.length);
   for (let t = 0; t < v10.length; t++) {
     let a = 1 / 7;
     if (v10[t] > 0.5 && v100[t] > 0.5) a = Math.min(0.6, Math.max(0, Math.log(v100[t] / v10[t]) / Math.log(10)));
-    const v = v10[t] > 0 ? v10[t] * Math.pow(wt.hub / 10, a) : 0;
+    const v = v10[t] > 0 ? f * v10[t] * Math.pow(wt.hub / 10, a) : 0;
     let p = 0;
     if (v > wt.vcin && v < wt.vr) p = wt.pr * (v - wt.vcin) / (wt.vr - wt.vcin);
     else if (v >= wt.vr && v < wt.vcout) p = wt.pr;
@@ -170,7 +171,8 @@ export function npcUnidad(dev, df, anios, anual = 0) {
 
 // Arma todo lo que necesita la simulación: series por unidad, capacidades y costos por unidad.
 // `demanda`: kW horarios; `wtKw`, `pvKw`: potencia de UNA unidad en cada hora.
-export function prepararCaso({ demanda, wtKw, pvKw, equipos, economia, terreno = null }) {
+// `estela` (opcional, de zona.estelaParque): eficiencia del parque por sector y sector de cada hora.
+export function prepararCaso({ demanda, wtKw, pvKw, equipos, economia, terreno = null, estela = null }) {
   const eq = { bat: CATALOGO.bat[0], dg: CATALOGO.dg[0], ...equipos };
   const eco = { ...ECONOMIA_TESIS, ...economia };
   const n = demanda.length;
@@ -197,6 +199,7 @@ export function prepararCaso({ demanda, wtKw, pvKw, equipos, economia, terreno =
     bat: { ...eq.bat }, dg: { ...eq.dg },
     crf: coef, df, sumaDF, anios: eco.anios, precioDiesel: eco.diesel,
     npcU, ciU: MODULOS.map((k) => eq[k].ci), terreno,
+    estela: estela && { eta: Float32Array.from(estela.eta), sec: estela.sec && Uint8Array.from(estela.sec), S: estela.S, nMax: estela.nMax },
   };
 }
 
@@ -240,8 +243,9 @@ export function simular(caso, cfg, completo = false) {
     sLoss = new Float64Array(n); sDef = new Float64Array(n); sSoc = new Float64Array(n); sDg = new Float64Array(n);
   }
 
+  const est = caso.estela, filaE = est ? Math.min(nWt, est.nMax) * (est.S + 1) : 0;   // estelas: eficiencia del parque
   for (let t = 0; t < n; t++) {
-    const WT = wt1[t] * nWt, PV = pv1[t] * nPv, d = D[t];
+    const WT = wt1[t] * nWt * (est ? est.eta[filaE + (est.sec ? est.sec[t] : est.S)] : 1), PV = pv1[t] * nPv, d = D[t];
     let sum = 0, exc = 0, necStr = 0;
     let lossAcDc = 0, lossEle = 0, lossStr = 0, lossFc = 0, lossDg = 0;
 

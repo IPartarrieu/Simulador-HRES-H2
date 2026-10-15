@@ -4,7 +4,8 @@
 // Uso: node tests/validar.mjs
 import { readFileSync } from "node:fs";
 import { decodificarSerie } from "../assets/codec.js";
-import { CATALOGO, ECONOMIA_TESIS, prepararCaso, simular, crf, tasaReal, npcUnidad } from "../assets/model.js";
+import { CATALOGO, ECONOMIA_TESIS, prepararCaso, simular, crf, tasaReal, npcUnidad, potenciaWT } from "../assets/model.js";
+import { estelaParque, eficienciaParque, distribucionPaneles, sombraFilas, proyeccion } from "../assets/zona.js";
 
 const datos = JSON.parse(readFileSync(new URL("../data/ejemplo_45s_2018.json", import.meta.url)));
 datos.demanda_kw = decodificarSerie(datos.demanda_codificada);
@@ -43,6 +44,29 @@ homer.push(
 for (const [nombre, a, b, tol] of homer) {
   const ok = cerca(a, b, tol); fallas += ok ? 0 : 1;
   console.log(`${ok ? "✓" : "✗"} HOMER: ${nombre} → ${a.toFixed(4)} (esperado ${b.toFixed(4)})`);
+}
+
+// 3) Estelas (Jensen) y sombras. Viento siempre del norte a 8 m/s; dos aerogeneradores Gaia (D = 13 m) a 7D en
+//    línea norte-sur: el de atrás recibe δ = 0,553·(1/(1 + 0,075·14))² y la eficiencia sale de la curva de potencia.
+const wt = equipos.wt, D = wt.rotor, h = 8760;
+const clima = { v10_ms: Array(h).fill(8), v100_ms: Array(h).fill(8 * 10 ** (1 / 7)), temp_c: Array(h).fill(15), presion_hpa: Array(h).fill(1013.25), dir100_deg: Array(h).fill(0) };
+const pr = proyeccion([-37, -72]), cuadro = [[-37.01, -72.01], [-37.01, -71.99], [-36.99, -71.99], [-36.99, -72.01]];
+const P = (f) => potenciaWT(wt, [8], [clima.v100_ms[0]], [15], [1013.25], f)[0];
+const dJ = (1 - Math.sqrt(0.2)) / (1 + 2 * 0.075 * 7) ** 2;
+const enLinea = estelaParque(cuadro, [pr.b([0, 3.5 * D]), pr.b([0, -3.5 * D])], { D, wt, clima, eje: 0 });
+const lado = estelaParque(cuadro, [pr.b([0, 0]), pr.b([0, -7 * D]), pr.b([4 * D, 0])], { D, wt, clima, eje: 0 });
+const seg = pr.a(lado.orden[1]);
+const sp = distribucionPaneles(-37, { areaPanelM2: 2 }), b = (sp.beta * Math.PI) / 180;
+const otros = [
+  ["estela: 2 en línea con el viento (±0,1 % por el ancho del sector de 10°)", eficienciaParque(enLinea, 2), (P(1) + P(1 - dJ)) / (2 * P(1)), 1e-3],
+  ["estela: el 2.º se pone al lado, no detrás (x del 2.º, m)", seg[0], 4 * D, 1e-6],
+  ["estela: 1 aerogenerador no pierde nada", eficienciaParque(lado, 1), 1, 1e-9],
+  ["sombra entre filas a −37°: entre 0,5 y 4 %", +(sp.sombra > 0.005 && sp.sombra < 0.04), 1, 0],
+  ["sombra entre filas: con la mitad de separación, más pérdida", +(sombraFilas(-37, b, sp.gcr * 1.5) > sp.sombra), 1, 0],
+];
+for (const [nombre, a, e, tol] of otros) {
+  const ok = cerca(a, e, tol); fallas += ok ? 0 : 1;
+  console.log(`${ok ? "✓" : "✗"} ${nombre} → ${a.toFixed(4)} (esperado ${e.toFixed(4)})`);
 }
 
 // Rendimiento: simulaciones anuales por segundo.
