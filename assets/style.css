@@ -99,6 +99,7 @@ details.more summary, .equipo summary { cursor: pointer; font-size: 14px; font-w
 .chart-box { position: relative; height: 280px; }
 .chart-box.short { height: 170px; margin-top: 12px; }
 .res-diagrama { margin-top: 20px; max-width: 820px; }
+.res-layout { margin-top: 24px; max-width: 900px; }
 .chart-box.conv { border: 1px dashed var(--line); border-radius: 10px; padding: 8px; }
 .placeholder { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; padding: 20px; text-align: center; font-size: 14px; color: var(--muted); pointer-events: none; }
 .charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 24px; margin-top: 24px; }

@@ -3,7 +3,7 @@
 import { CATALOGO, MODULOS, NOMBRES, ECONOMIA_TESIS, FUENTES, OBJETIVOS_MO, potenciaPV, potenciaWT, limitesPorDefecto } from "./model.js";
 import { monteCarlo, genetico, shade, pso, gwo, woa, eo, nsga2, mopso, aptitud, PENALIZACION } from "./optimizers.js";
 import * as dem from "./demand.js";
-import { svgDiagrama, descargarSVG, descargarPNG, descargar } from "./diagram.js";
+import { svgDiagrama, svgLayout, descargarSVG, descargarPNG, descargar } from "./diagram.js";
 import * as zona from "./zona.js";
 
 const $ = (s) => document.querySelector(s);
@@ -417,7 +417,7 @@ function distribucion() {
   const lay = cacheLayout.lay;
   const paneles = zona.distribucionPaneles(z.centro[0], { areaPanelM2: pv.pr / (pv.eff / 100), aprovechamiento: Math.min(1, Math.max(0.1, num("#lay-aprov") / 100)) });
   return {
-    ...lay, paneles,
+    ...lay, paneles, op,
     nWt: lay.demasiadas ? Math.floor(z.area / lay.celdaM2) : lay.posiciones.length,
     nPv: Math.floor(z.area / paneles.m2PorPanel),
   };
@@ -747,7 +747,7 @@ async function optimizar() {
     await pool.init(caso, crit);
     const evaluador = crearEvaluador(pool);
     const comun = { limites, evaluar: evaluador.evaluar, semilla, alProgresar: (p) => mostrarProgreso(p, t0, evaluador, crit), detenido: () => detener };
-    const snap = { equipos: clonar(estado.equipos), arq: clonar(estado.arq), economia: leerEconomia(), terreno: caso.terreno, zona: estado.zona };
+    const snap = { equipos: clonar(estado.equipos), arq: clonar(estado.arq), economia: leerEconomia(), terreno: caso.terreno, zona: estado.zona, dist: distribucion() };
     const meta = { metodo: metodo.nombre.replace(" · recomendado", ""), params, semilla, crit, snap, detenido: false };
     $("#pareto").hidden = true;
     if (metodo.mo) {
@@ -803,7 +803,7 @@ async function simularManual() {
   const cfg = $$("#manual input").map((i) => Math.max(0, Math.round(Number(i.value) || 0)));
   const crit = { ...leerCriterio(), modo: "uno", mo: [] };
   const caso = await armarCaso();
-  const snap = { equipos: clonar(estado.equipos), arq: clonar(estado.arq), economia: leerEconomia(), terreno: caso.terreno, zona: estado.zona };
+  const snap = { equipos: clonar(estado.equipos), arq: clonar(estado.arq), economia: leerEconomia(), terreno: caso.terreno, zona: estado.zona, dist: distribucion() };
   await simularCon(caso, crit, cfg, { metodo: "Configuración ingresada a mano", crit, snap, manual: true });
 }
 
@@ -998,8 +998,35 @@ function mostrarResultados(cfg, r, meta, desplazarA = "#resultados") {
     options: { responsive: true, maintainAspectRatio: false, animation: false,
       plugins: { legend: { position: "right", labels: { boxWidth: 12 } }, tooltip: { callbacks: { label: (c) => `${c.label}: ${musd(c.raw)} (${fmt((c.raw / r.npc) * 100, 1)} %)` } } } },
   });
+  renderLayoutResultado(cfg, r, meta);
   renderDistribucion();
   if (desplazarA) $(desplazarA).scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// Figura con la ubicación de los equipos del resultado dentro de la zona.
+function renderLayoutResultado(cfg, r, meta) {
+  const { zona: z, dist, equipos, arq } = meta.snap;
+  $("#res-layout").hidden = !z || !dist;
+  estado.resultado.layoutSvg = null;
+  if (!z || !dist) return;
+  const pv = equipos.pv, areaMod = pv.pr / (pv.eff / 100), p = dist.paneles;
+  const pitch = (2 * Math.sqrt(areaMod * 1.75)) / p.gcr;          // mesas de 2 paneles en vertical
+  const geo = zona.layoutResultado(z.pts, { posiciones: dist.posiciones, ...dist.op, nWt: Math.min(cfg[0], dist.posiciones.length), areaPv: cfg[1] * p.m2PorPanel });
+  const bloque = ["con", "ele", "ht", "fc", "bat", "dg"].map((k) => [k, MODULOS.indexOf(k)]).filter(([, i]) => cfg[i] > 0)
+    .map(([k, i]) => `${NOMBRES[k][0].toLowerCase()}${NOMBRES[k].slice(1)} ${capacidad(k, cfg[i], equipos)}`);
+  const leyenda = [["zona", `Zona: ${fmt(z.area / 1e4, 1)} ha`]];
+  if (cfg[0]) leyenda.push(["wt", `${fmt(cfg[0])} aerogeneradores ${equipos.wt.nombre} · rotor de ${fmt(dist.op.D, 1)} m · separación ${fmt(dist.op.sx, 1)}D × ${fmt(dist.op.sy, 1)}D`]);
+  if (cfg[1]) leyenda.push(["pv", `${fmt(cfg[1])} paneles (${capacidad("pv", cfg[1], equipos)}) en ${fmt((cfg[1] * p.m2PorPanel) / 1e4, 1)} ha · mesas a ${fmt(p.beta)}° hacia el norte, filas cada ${fmt(pitch, 1)} m`]);
+  if (bloque.length) leyenda.push(["bloque", `Bloque de potencia: ${bloque.join(" · ")}`]);
+  const svg = svgLayout(geo, { titulo: `Layout del sistema ${nombreArquitectura(arq)} · LCOE ${fmt(r.lcoe, 4)} USD/kWh`, eje: dist.op.eje, pitchM: pitch, leyenda });
+  estado.resultado.layoutSvg = svg;
+  $("#layout-res").innerHTML = svg;      // SVG armado por el propio sitio (textos escapados)
+  const notas = [];
+  if (dist.demasiadas && cfg[0]) notas.push("Hay demasiadas posiciones posibles para dibujar los aerogeneradores: aumenta la separación o reduce la zona.");
+  else if (cfg[0] > dist.posiciones.length) notas.push(`Solo caben ${fmt(dist.posiciones.length)} de los ${fmt(cfg[0])} aerogeneradores.`);
+  if (!geo.completo) notas.push("El campo fotovoltaico no cabe completo en el terreno que dejan libre los aerogeneradores.");
+  notas.push("Los aerogeneradores ocupan primero las filas perpendiculares al viento; los paneles se agrupan alrededor del bloque de potencia para acortar el cableado. Es un anteproyecto: el trazado final requiere topografía, accesos y estudio de estelas.");
+  $("#layout-nota").textContent = notas.join(" ");
 }
 
 function descargarCSV() {
@@ -1102,6 +1129,10 @@ function iniciar() {
     const res = estado.resultado; if (!res) return;
     const svg = svgDiagrama({ arq: res.arq, equipos: res.equipos, cfg: res.cfg, titulo: tituloDiagrama(res.r, res.meta) });
     if (b.dataset.descargarRes === "svg") descargarSVG(svg, "diagrama_resultado.svg"); else descargarPNG(svg, "diagrama_resultado.png");
+  }));
+  $$("[data-layout]").forEach((b) => b.addEventListener("click", () => {
+    const svg = estado.resultado?.layoutSvg; if (!svg) return;
+    if (b.dataset.layout === "svg") descargarSVG(svg, "layout_resultado.svg"); else descargarPNG(svg, "layout_resultado.png");
   }));
   $("#dl-csv").addEventListener("click", descargarCSV);
   $("#dl-json").addEventListener("click", descargarJSON);

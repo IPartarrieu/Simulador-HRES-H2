@@ -122,3 +122,49 @@ export function descargarPNG(svg, nombre, escala = 2) {
   };
   img.src = url;
 }
+
+// Figura del layout de un resultado (geometría de layoutResultado en zona.js, en metros locales): zona, campo
+// fotovoltaico con sus filas, aerogeneradores con el diámetro del rotor y bloque de potencia, con escala y norte.
+export function svgLayout(geo, { titulo, eje, pitchM, leyenda }) {
+  const lineas = leyenda.map(([tipo, texto]) => [tipo, texto.split(" ").reduce((ls, p) => {
+    if (ls.length && (ls[ls.length - 1] + " " + p).length <= 105) ls[ls.length - 1] += " " + p; else ls.push(p);
+    return ls;
+  }, [])]);
+  const W = 900, m = 28, top = 56, X = geo.poli.map((p) => p[0]), Y = geo.poli.map((p) => p[1]);
+  const [x0, x1, y0, y1] = [Math.min(...X), Math.max(...X), Math.min(...Y), Math.max(...Y)];
+  const k = Math.min((W - 2 * m) / Math.max(x1 - x0, 1), 520 / Math.max(y1 - y0, 1));
+  const hDib = (y1 - y0) * k, H = top + hDib + 40 + lineas.reduce((a, [, l]) => a + l.length * 18 + 6, 0) + 16;
+  const px = (x) => m + (x - x0) * k, py = (y) => top + (y1 - y) * k, f = (v) => v.toFixed(1);
+  const paso = Math.max(2.5, pitchM * k), lado = geo.lado * k + 0.6, r = Math.max(3, (geo.D / 2) * k);
+  const escala = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000].filter((v) => v <= 0.25 * (x1 - x0)).pop() || 10;
+  const a = (eje * Math.PI) / 180, ex = Math.sin(a) * 22, ey = -Math.cos(a) * 22, cx = W - 60, cy = top + 70;
+  const s = [];
+  s.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${f(H)}" viewBox="0 0 ${W} ${f(H)}" font-family="Inter, Segoe UI, Arial, sans-serif">`);
+  s.push(`<defs><pattern id="filas" patternUnits="userSpaceOnUse" width="8" height="${f(paso)}"><rect width="8" height="${f(paso)}" fill="#FBE7C2"/><rect width="8" height="${f(Math.max(1, paso * 0.45))}" fill="#E9A23B"/></pattern>`);
+  s.push(`<marker id="punta" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#3E7BD6"/></marker></defs>`);
+  s.push(`<rect width="${W}" height="${f(H)}" fill="#FFFFFF"/><text x="${m}" y="30" font-size="17" font-weight="700" fill="#1E2530">${esc(titulo)}</text>`);
+  s.push(`<polygon points="${geo.poli.map(([x, y]) => `${f(px(x))},${f(py(y))}`).join(" ")}" fill="#F3F1EC" stroke="#C2410C" stroke-width="2"/>`);
+  for (const [x, y] of geo.pv) s.push(`<rect x="${f(px(x) - lado / 2)}" y="${f(py(y) - lado / 2)}" width="${f(lado)}" height="${f(lado)}" fill="url(#filas)"/>`);
+  for (const [x, y] of geo.turb) s.push(`<circle cx="${f(px(x))}" cy="${f(py(y))}" r="${f(r)}" fill="#2A9D8F" stroke="#FFFFFF" stroke-width="1.2"/>`);
+  const [bx, by] = geo.bloque;
+  s.push(`<rect x="${f(px(bx) - 8)}" y="${f(py(by) - 8)}" width="16" height="16" fill="#1E2530" stroke="#FFFFFF" stroke-width="1.5"/>`);
+  // Norte, eje del viento y escala
+  s.push(`<g fill="#1E2530" font-size="12" text-anchor="middle"><path d="M${W - 60} ${top + 4}l7 18h-14z"/><text x="${W - 60}" y="${top + 36}" font-weight="700">N</text></g>`);
+  s.push(`<line x1="${f(cx - ex)}" y1="${f(cy - ey)}" x2="${f(cx + ex)}" y2="${f(cy + ey)}" stroke="#3E7BD6" stroke-width="2" marker-start="url(#punta)" marker-end="url(#punta)"/><text x="${cx}" y="${cy + 38}" font-size="11" text-anchor="middle" fill="#3E7BD6">eje del viento</text>`);
+  const ye = top + hDib + 24, le = escala * k;
+  s.push(`<g font-size="12" fill="#1E2530"><rect x="${m}" y="${f(ye)}" width="${f(le / 2)}" height="6" fill="#1E2530"/><rect x="${f(m + le / 2)}" y="${f(ye)}" width="${f(le / 2)}" height="6" fill="#FFFFFF" stroke="#1E2530"/><text x="${f(m + le + 8)}" y="${f(ye + 7)}">${escala >= 1000 ? `${escala / 1000} km` : `${escala} m`}</text></g>`);
+  // Leyenda
+  let y = ye + 34;
+  lineas.forEach(([tipo, ls]) => {
+    const sim = {
+      wt: `<circle cx="${m + 8}" cy="${y - 4}" r="6" fill="#2A9D8F"/>`,
+      pv: `<rect x="${m}" y="${y - 11}" width="16" height="14" fill="url(#filas)" stroke="#E9A23B"/>`,
+      bloque: `<rect x="${m + 1}" y="${y - 11}" width="14" height="14" fill="#1E2530"/>`,
+      zona: `<rect x="${m}" y="${y - 11}" width="16" height="14" fill="#F3F1EC" stroke="#C2410C" stroke-width="2"/>`,
+    }[tipo];
+    s.push(`${sim}<text x="${m + 26}" y="${y}" font-size="13" fill="#1E2530">${ls.map((l, i) => `<tspan x="${m + 26}" dy="${i ? 18 : 0}">${esc(l)}</tspan>`).join("")}</text>`);
+    y += ls.length * 18 + 6;
+  });
+  s.push("</svg>");
+  return s.join("");
+}

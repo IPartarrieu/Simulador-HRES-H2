@@ -79,7 +79,8 @@ function distSegmento([px, py], [ax, ay], [bx, by]) {
 // Aerogeneradores en grilla: separación sx·D en la dirección del viento y sy·D en la transversal, con retiro
 // desde el borde. eje: dirección dominante del viento (grados desde el norte; da lo mismo el sentido). Prueba
 // filas alineadas y escalonadas con varios desfases y se queda con la que cabe más. Las posiciones vuelven
-// ordenadas por fila transversal al viento: con pocos equipos se llena primero una fila, sin estelas entre ellos.
+// ordenadas por fila transversal al viento, desde la más cercana al centro de la zona: con pocos equipos se llena
+// primero una fila (sin estelas entre ellos) y quedan cerca del bloque de potencia.
 export function distribuirAerogeneradores(pts, { D, sx = 7, sy = 4, retiro = 0, eje = 0, max = 20000 }) {
   const pr = proyeccion(centro(pts)), poli = pts.map(pr.a);
   const u = [Math.sin(rad(eje)), Math.cos(rad(eje))], w = [u[1], -u[0]];     // a lo largo y a lo ancho del viento
@@ -97,7 +98,7 @@ export function distribuirAerogeneradores(pts, { D, sx = 7, sy = 4, retiro = 0, 
     }
     if (out.length > mejor.length) mejor = out;
   }
-  const posiciones = mejor.sort((p, q) => p[0] - q[0] || p[1] - q[1])
+  const posiciones = mejor.sort((p, q) => Math.abs(p[0]) - Math.abs(q[0]) || p[0] - q[0] || Math.abs(p[1]) - Math.abs(q[1]))
     .map(([a, b]) => pr.b([a * u[0] + b * w[0], a * u[1] + b * w[1]]));
   return { posiciones, celdaM2: da * db };
 }
@@ -110,6 +111,36 @@ export function distribucionPaneles(lat, { areaPanelM2, aprovechamiento = 0.85 }
   const alfa = Math.max(5, 90 - Math.abs(lat) - 23.45);                      // altura del sol a mediodía en junio
   const gcr = 1 / (Math.cos(rad(beta)) + Math.sin(rad(beta)) / Math.tan(rad(alfa)));
   return { beta, alfa, gcr, m2PorPanel: areaPanelM2 / (gcr * aprovechamiento) };
+}
+
+// Ubicación de los equipos de un resultado, en metros locales (x al este, y al norte):
+// - los primeros nWt aerogeneradores de la grilla, cada uno dueño de su celda de separación;
+// - el campo fotovoltaico en celdas cuadradas libres de esas celdas, desde el bloque de potencia hacia afuera,
+//   hasta cubrir el terreno que necesitan los paneles (areaPv, m²);
+// - el bloque de potencia (conversores, H₂, baterías, diésel) en el punto libre más cercano al centro.
+// ponytail: el campo FV se arma con celdas de hasta ~3000 por zona; para un trazado fino de mesas, usar un CAD.
+export function layoutResultado(pts, { posiciones, D, sx, sy, eje, nWt, areaPv }) {
+  const pr = proyeccion(centro(pts)), poli = pts.map(pr.a);
+  const u = [Math.sin(rad(eje)), Math.cos(rad(eje))], w = [u[1], -u[0]];
+  const turb = posiciones.slice(0, nWt).map(pr.a);
+  const enCeldaWt = ([x, y]) => turb.some(([tx, ty]) => {
+    const dx = x - tx, dy = y - ty;
+    return Math.abs(dx * u[0] + dy * u[1]) < (sx * D) / 2 && Math.abs(dx * w[0] + dy * w[1]) < (sy * D) / 2;
+  });
+  const X = poli.map((p) => p[0]), Y = poli.map((p) => p[1]);
+  const [x0, x1, y0, y1] = [Math.min(...X), Math.max(...X), Math.min(...Y), Math.max(...Y)];
+  const lado = Math.max(5, Math.sqrt(((x1 - x0) * (y1 - y0)) / 3000));
+  const poliYX = poli.map(([x, y]) => [y, x]), libres = [];
+  for (let x = x0 + lado / 2; x < x1; x += lado) for (let y = y0 + lado / 2; y < y1; y += lado) {
+    if (dentro([y, x], poliYX) && !enCeldaWt([x, y])) libres.push([x, y]);
+  }
+  const c = pr.a(centro(pts));
+  const d2 = (p) => (p[0] - c[0]) ** 2 + (p[1] - c[1]) ** 2;
+  libres.sort((p, q) => d2(p) - d2(q));
+  const bloque = libres[0] || c;
+  const pv = [];
+  for (let i = 1, a = 0; i < libres.length && a < areaPv; i++, a += lado * lado) pv.push(libres[i]);
+  return { poli, turb, pv, lado, bloque, D, completo: pv.length * lado * lado >= areaPv - 1e-6 };
 }
 
 // Mapa de solo lectura con la zona y la distribución de los aerogeneradores (usados en relleno, libres en blanco).
