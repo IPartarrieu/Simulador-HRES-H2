@@ -5,7 +5,7 @@
 // ponytail: rectángulo que cubre las cuatro regiones, no su límite exacto; usar un GeoJSON regional si hace falta precisión.
 export const REGION = { latMin: -39.7, latMax: -34.6, lonMin: -74.0, lonMax: -70.3 };
 export const AREA_MAX_KM2 = 25;          // límite para que la zona sea un terreno, no una comuna entera
-import { potenciaWT, vientoBuje } from "./model.js?v=20261015f";
+import { potenciaWT, vientoBuje } from "./model.js?v=20261015g";
 
 const R = 6378137;
 const rad = (g) => (g * Math.PI) / 180, grados = (r) => (r * 180) / Math.PI;
@@ -64,6 +64,107 @@ export async function elevacion(pts) {
   const e = d.elevation.filter(Number.isFinite);
   return { min: Math.min(...e), max: Math.max(...e), media: e.reduce((a, b) => a + b, 0) / e.length, n: e.length };
 }
+
+/* ---------- Relieve (Terrain Tiles de AWS) ---------- */
+
+export const N_RELIEVE = 64;                    // grilla de elevación N × N sobre la zona y un margen
+const lim = (v, a, b) => Math.min(b, Math.max(a, v));
+// Mosaico de teselas web (Mercator) que cubre la caja [norte, sur, oeste, este] al nivel z.
+// Devuelve el lienzo y la función que pasa de [lat, lon] a píxeles del lienzo.
+export async function mosaico(url, { norte, sur, oeste, este }, z) {
+  const merc = ([la, lo]) => {
+    const s = Math.sin((la * Math.PI) / 180), n = 256 * 2 ** z;
+    return [((lo + 180) / 360) * n, (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n];
+  };
+  const [x0, y0] = merc([norte, oeste]), [x1, y1] = merc([sur, este]);
+  const lienzo = document.createElement("canvas");
+  lienzo.width = Math.max(1, Math.round(x1 - x0)); lienzo.height = Math.max(1, Math.round(y1 - y0));
+  const ctx = lienzo.getContext("2d", { willReadFrequently: true });
+  const tareas = [];
+  for (let tx = Math.floor(x0 / 256); tx <= Math.floor(x1 / 256); tx++) for (let ty = Math.floor(y0 / 256); ty <= Math.floor(y1 / 256); ty++) {
+    tareas.push(new Promise((ok, mal) => {
+      const img = new Image(); img.crossOrigin = "anonymous";
+      img.onload = () => { ctx.drawImage(img, tx * 256 - x0, ty * 256 - y0); ok(); };
+      img.onerror = () => mal(new Error("no se pudo descargar una tesela"));
+      img.src = url(z, tx, ty);
+    }));
+  }
+  await Promise.all(tareas);
+  return { lienzo, ctx, px: (p) => { const [x, y] = merc(p); return [x - x0, y - y0]; } };
+}
+export const nivelTesela = (caja, pixeles, max) => lim(Math.floor(Math.log2((156543.03 * Math.cos((((caja.norte + caja.sur) / 2) * Math.PI) / 180) * pixeles) / caja.anchoM)), 3, max);
+
+// Elevación de las Terrain Tiles de AWS (formato Terrarium: h = R·256 + G + B/256 − 32768 m).
+async function elevaciones(puntos, caja) {
+  const m = await mosaico((z, x, y) => `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`, caja, nivelTesela(caja, 512, 14));
+  const { data, width, height } = m.ctx.getImageData(0, 0, m.lienzo.width, m.lienzo.height);
+  const h = puntos.map((p) => {
+    const [x, y] = m.px(p), k = (lim(Math.round(y), 0, height - 1) * width + lim(Math.round(x), 0, width - 1)) * 4;
+    return data[k + 3] < 255 ? NaN : data[k] * 256 + data[k + 1] + data[k + 2] / 256 - 32768;
+  });
+  // Píxeles sin dato (fuera de una tesela o con valores imposibles en Chile) → mediana de la grilla.
+  const validos = h.filter((v) => v > -500 && v < 7000).sort((a, b) => a - b);
+  const mediana = validos.length ? validos[Math.floor(validos.length / 2)] : 0;
+  const e = h.map((v) => (v > -500 && v < 7000 ? v : mediana));
+  // Picos aislados (píxeles erróneos en el borde de una tesela): más de 150 m sobre o bajo la mediana de sus vecinos.
+  return e.map((v, k) => {
+    const i = Math.floor(k / N_RELIEVE), j = k % N_RELIEVE, vec = [];
+    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) if ((a || b) && i + a >= 0 && i + a < N_RELIEVE && j + b >= 0 && j + b < N_RELIEVE) vec.push(e[(i + a) * N_RELIEVE + j + b]);
+    vec.sort((x, y) => x - y);
+    const med = vec[Math.floor(vec.length / 2)];
+    return Math.abs(v - med) > 150 ? med : v;
+  });
+}
+
+// Relieve de la zona y un margen de 18 %: grilla N × N en metros locales (filas de norte a sur, columnas de oeste
+// a este), con la caja geográfica para pedir otras teselas (imagen satelital). Se guarda por zona.
+const cacheRelieve = new Map();
+export function relieve(pts) {
+  const clave = JSON.stringify(pts);
+  if (!cacheRelieve.has(clave)) {
+    const p = (async () => {
+      const N = N_RELIEVE, pr = proyeccion(centro(pts)), loc = pts.map(pr.a);
+      const X = loc.map((q) => q[0]), Y = loc.map((q) => q[1]);
+      const marg = 0.18 * Math.max(Math.max(...X) - Math.min(...X), Math.max(...Y) - Math.min(...Y));
+      const [x0, x1, y0, y1] = [Math.min(...X) - marg, Math.max(...X) + marg, Math.min(...Y) - marg, Math.max(...Y) + marg];
+      const puntos = [];
+      for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) puntos.push(pr.b([x0 + (j / (N - 1)) * (x1 - x0), y1 - (i / (N - 1)) * (y1 - y0)]));
+      const [no, oe] = pr.b([x0, y1]), [su, es] = pr.b([x1, y0]);
+      const caja = { norte: no, sur: su, oeste: oe, este: es, anchoM: x1 - x0 };
+      const r = { x0, x1, y0, y1, n: N, elev: await elevaciones(puntos, caja), caja };
+      cacheRelieve.set(clave, { listo: r });
+      return r;
+    })();
+    cacheRelieve.set(clave, { p });
+    p.catch(() => cacheRelieve.delete(clave));
+  }
+  const c = cacheRelieve.get(clave);
+  return c.listo ? Promise.resolve(c.listo) : c.p;
+}
+// El relieve ya descargado de una zona, o null.
+export const relieveGuardado = (pts) => cacheRelieve.get(JSON.stringify(pts))?.listo || null;
+
+// Elevación (m) en un punto local, interpolada en la grilla.
+function alturaEn({ x0, x1, y0, y1, n, elev }, x, y) {
+  const fj = lim(((x - x0) / (x1 - x0)) * (n - 1), 0, n - 1.001), fi = lim(((y1 - y) / (y1 - y0)) * (n - 1), 0, n - 1.001);
+  const j = Math.floor(fj), i = Math.floor(fi), a = fj - j, b = fi - i, e = (r, c) => elev[r * n + c];
+  return (e(i, j) * (1 - a) + e(i, j + 1) * a) * (1 - b) + (e(i + 1, j) * (1 - a) + e(i + 1, j + 1) * a) * b;
+}
+// Altura angular del horizonte del relieve (rad) en 16 direcciones desde un punto (solo el relieve de la grilla).
+const NAZ = 16;
+function horizonteEn(rel, x, y) {
+  const ds = Math.min(rel.x1 - rel.x0, rel.y1 - rel.y0) / (rel.n - 1), z0 = alturaEn(rel, x, y), h = new Float32Array(NAZ);
+  for (let a = 0; a < NAZ; a++) {
+    const sx = Math.sin((2 * Math.PI * a) / NAZ), sy = Math.cos((2 * Math.PI * a) / NAZ);
+    for (let k = 1; k < rel.n; k++) {
+      const px = x + k * ds * sx, py = y + k * ds * sy;
+      if (px < rel.x0 || px > rel.x1 || py < rel.y0 || py > rel.y1) break;
+      h[a] = Math.max(h[a], Math.atan2(alturaEn(rel, px, py) - z0, k * ds));
+    }
+  }
+  return h;
+}
+const dirHorizonte = (az) => Math.round((az / (2 * Math.PI)) * NAZ) % NAZ;
 
 /* ---------- Distribución de equipos dentro de la zona ---------- */
 
@@ -208,38 +309,63 @@ function ocupaCeldas([tx, ty], celdas, { D, sx, sy, eje, compartir, libre }) {
 }
 export const areaExclusiva = ({ D, sx, sy, compartir, libre }) => (compartir ? Math.PI * (libre * D) ** 2 : sx * D * sy * D);
 
-// Orden en que se llena el campo solar: la celda libre más cercana al centro es para el bloque de potencia; luego,
-// desde el centro hacia afuera, las que la sombra de los aerogeneradores tapa menos de 0,5 % al año, y al final las
-// demás, de menos a más sombra.
-function ordenCeldas(celdas, c, ocupada, perd) {
+// Recurso solar de cada celda para paneles en mesas fijas (β hacia el norte, con el GCR del diseño): fracción de la
+// radiación de cielo despejado sobre el panel que de verdad llega, descontando
+// - la sombra del relieve (el sol bajo el horizonte de la celda tapa el haz directo) y
+// - la sombra entre filas según la pendiente norte-sur σ del terreno: en una ladera al norte (σ > 0) la fila de
+//   adelante queda más baja y sombrea menos; en una ladera al sur, más: f = 1 − sen(αp + σ) / (GCR · sen(αp + β)).
+// Sin relieve (no se pudo descargar), todas las celdas valen lo del terreno plano: 1 − sombraFilas.
+export function factorCeldasFV(celdas, rel, { lat, beta, gcr }) {
+  const soles = cieloDespejado(lat, rad(beta), 5, 0.5), tot = soles.reduce((a, s) => a + s.total, 0), b = rad(beta);
+  const prof = soles.map((s) => (s.haz && Math.cos(s.az) > 0 ? perfil(s) : null)), dirs = soles.map((s) => dirHorizonte(s.az));
+  const ds = rel ? Math.min(rel.x1 - rel.x0, rel.y1 - rel.y0) / (rel.n - 1) : 0;
+  const calc = (sigma, hz) => {
+    let E = 0;
+    soles.forEach((s, q) => {
+      let haz = hz && s.alt <= hz[dirs[q]] ? 0 : s.haz;
+      if (haz && prof[q] !== null) haz *= 1 - lim(1 - Math.sin(prof[q] + sigma) / (gcr * Math.sin(prof[q] + b)), 0, 1);
+      E += haz + s.total - s.haz;
+    });
+    return E / tot;
+  };
+  if (!rel) { const f = calc(0, null); return new Float64Array(celdas.length).fill(f); }
+  return Float64Array.from(celdas, ([x, y]) => calc(Math.atan((alturaEn(rel, x, y - ds) - alturaEn(rel, x, y + ds)) / (2 * ds)), horizonteEn(rel, x, y)));
+}
+
+// Orden en que se llena el campo solar: la celda libre más cercana al centro es para el bloque de potencia; luego las
+// de mayor recurso (val: factor de la celda × (1 − sombra de los aerogeneradores)), en tramos de 0,5 %, y dentro de
+// cada tramo desde el centro hacia afuera, para no dispersar el campo entre celdas que rinden casi lo mismo.
+function ordenCeldas(celdas, c, ocupada, val) {
   const d2 = (i) => (celdas[i][0] - c[0]) ** 2 + (celdas[i][1] - c[1]) ** 2;
   const libres = [];
   for (let i = 0; i < celdas.length; i++) if (!ocupada[i]) libres.push(i);
   if (!libres.length) return { bloque: -1, orden: [] };
   let bloque = libres[0];
   for (const i of libres) if (d2(i) < d2(bloque)) bloque = i;
-  const malo = (i) => perd[i] > 0.005;
-  const orden = libres.filter((i) => i !== bloque).sort((i, j) => malo(i) - malo(j) || (malo(i) ? perd[i] - perd[j] : d2(i) - d2(j)));
+  const tramo = (i) => Math.floor(val[i] / 0.005);
+  const orden = libres.filter((i) => i !== bloque).sort((i, j) => tramo(j) - tramo(i) || d2(i) - d2(j));
   return { bloque, orden };
 }
 
-// Interacción paneles-aerogeneradores para el optimizador: pérdida media por sombra de los aerogeneradores en las
-// primeras k celdas del campo solar, con los primeros n aerogeneradores (n = 0..nMax, k = 1..K).
-// tabla[n·K + k − 1]; si k pasa de las celdas libres, se repite la última.
-export function interaccionPV(pts, posiciones, op) {
+// Campo solar para el optimizador: factor medio de producción FV (relieve, sombra entre filas y sombra de los
+// aerogeneradores; 1 = panel sin ninguna sombra) de las primeras k celdas que se llenan con los primeros n
+// aerogeneradores instalados (n = 0..nMax, k = 1..K). tabla[n·K + k − 1]; si k pasa de las celdas libres, se repite
+// la última. rel: relieve de la zona (o null).
+export function interaccionPV(pts, posiciones, op, rel) {
   const z = celdasZona(pts), K = z.celdas.length, nMax = Math.min(posiciones.length, op.nMax);
-  const soles = solesSombra(centro(pts)[0], rad(op.beta));
-  const perd = new Float64Array(K), ocupada = new Uint8Array(K), tabla = new Float32Array((nMax + 1) * K);
+  const lat = centro(pts)[0], base = factorCeldasFV(z.celdas, rel, { lat, beta: op.beta, gcr: op.gcr });
+  const soles = nMax ? solesSombra(lat, rad(op.beta)) : [];
+  const perd = new Float64Array(K), ocupada = new Uint8Array(K), val = Float64Array.from(base), tabla = new Float32Array((nMax + 1) * K);
   for (let n = 0; n <= nMax; n++) {
     if (n) {
       const t = z.pr.a(posiciones[n - 1]);
-      for (const [i, p] of sombraDe(t, z.celdas, soles, { ...op, lado: z.lado })) perd[i] += p;
+      for (const [i, p] of sombraDe(t, z.celdas, soles, { ...op, lado: z.lado })) { perd[i] += p; val[i] = base[i] * (1 - Math.min(1, perd[i])); }
       for (const i of ocupaCeldas(t, z.celdas, op)) ocupada[i] = 1;
     }
-    const { orden } = ordenCeldas(z.celdas, z.c, ocupada, perd);
+    const { orden } = ordenCeldas(z.celdas, z.c, ocupada, val);
     let suma = 0;
     for (let k = 0; k < K; k++) {
-      if (k < orden.length) suma += Math.min(1, perd[orden[k]]);
+      if (k < orden.length) suma += val[orden[k]];
       tabla[n * K + k] = orden.length ? suma / Math.min(k + 1, orden.length) : 0;
     }
   }
@@ -357,19 +483,24 @@ export const eficienciaParque = (e, n) => e.eta[Math.min(n, e.nMax) * (e.S + 1) 
 // - el campo fotovoltaico en las celdas que deja libres el terreno de los aerogeneradores, en el orden de
 //   ordenCeldas, hasta cubrir el terreno que necesitan los paneles (areaPv, m²).
 // ponytail: el campo FV se arma con celdas de hasta ~3000 por zona; para un trazado fino de mesas, usar un CAD.
-export function layoutResultado(pts, { posiciones, nWt, areaPv, hub = 0, beta = 0, ...op }) {
-  const z = celdasZona(pts), K = z.celdas.length;
+export function layoutResultado(pts, { posiciones, nWt, areaPv, hub = 0, beta = 0, gcr = 0.5, rel = null, ...op }) {
+  const z = celdasZona(pts), K = z.celdas.length, lat = centro(pts)[0];
   const turb = posiciones.slice(0, nWt).map(z.pr.a);
+  const base = areaPv ? factorCeldasFV(z.celdas, rel, { lat, beta, gcr }) : new Float64Array(K).fill(1);
   const perd = new Float64Array(K), ocupada = new Uint8Array(K);
-  const soles = turb.length && areaPv ? solesSombra(centro(pts)[0], rad(beta)) : [];
+  const soles = turb.length && areaPv ? solesSombra(lat, rad(beta)) : [];
   for (const t of turb) {
     if (soles.length) for (const [i, p] of sombraDe(t, z.celdas, soles, { hub, D: op.D, lado: z.lado })) perd[i] += p;
     for (const i of ocupaCeldas(t, z.celdas, op)) ocupada[i] = 1;
   }
-  const { bloque, orden } = ordenCeldas(z.celdas, z.c, ocupada, perd);
+  const val = base.map((b, i) => b * (1 - Math.min(1, perd[i])));
+  const { bloque, orden } = ordenCeldas(z.celdas, z.c, ocupada, val);
   const elegidas = orden.slice(0, Math.ceil(areaPv / (z.lado * z.lado) - 1e-9));
-  const sombraPv = elegidas.length ? elegidas.reduce((a, i) => a + Math.min(1, perd[i]), 0) / elegidas.length : 0;
-  return { poli: z.poli, turb, pv: elegidas.map((i) => z.celdas[i]), lado: z.lado, bloque: bloque >= 0 ? z.celdas[bloque] : z.c, D: op.D, sombraPv,
+  const media = (f) => (elegidas.length ? elegidas.reduce((a, i) => a + f(i), 0) / elegidas.length : 0);
+  const libresVal = orden.map((i) => val[i]);
+  return { poli: z.poli, turb, pv: elegidas.map((i) => z.celdas[i]), lado: z.lado, bloque: bloque >= 0 ? z.celdas[bloque] : z.c, D: op.D,
+    sombraPv: media((i) => Math.min(1, perd[i])), factorPv: media((i) => val[i]), conRelieve: !!rel,
+    factorRango: libresVal.length ? [Math.min(...libresVal), Math.max(...libresVal)] : [0, 0],
     completo: elegidas.length * z.lado * z.lado >= areaPv - 1e-6 };
 }
 
@@ -429,11 +560,7 @@ export function mapaSolar(rej, { lat, beta, gti, turb, hub, D }) {
     }
     horiz[(i * n + j) * NAZ + a] = h;
   }
-  const sTurb = new Float64Array(n * n);
-  if (turb.length) {
-    const ss = solesSombra(lat, rad(beta));
-    for (const t of turb) for (const [k, p] of sombraDe(t, pts, ss, { hub, D, lado: Math.min(ex, ey) })) sTurb[k] += p;
-  }
+  const sTurb = sombraEnPuntos(pts, turb, { lat, beta, hub, D, lado: Math.min(ex, ey) });
   return Float32Array.from(pts, (_, k) => {
     const i = Math.floor(k / n), j = k % n;
     const gx = (e(i, j + 1) - e(i, j - 1)) / (2 * ex), gy = (e(i - 1, j) - e(i + 1, j)) / (2 * ey), nz = 1 / Math.hypot(gx, gy, 1);
@@ -445,6 +572,25 @@ export function mapaSolar(rej, { lat, beta, gti, turb, hub, D }) {
     }
     return tot * paso * kc * (1 - Math.min(1, sTurb[k]));
   });
+}
+
+// Fracción de la radiación que la sombra de los aerogeneradores quita en cada punto.
+function sombraEnPuntos(pts, turb, { lat, beta, hub, D, lado }) {
+  const out = new Float64Array(pts.length);
+  if (!turb.length) return out;
+  const ss = solesSombra(lat, rad(beta));
+  for (const t of turb) for (const [k, p] of sombraDe(t, pts, ss, { hub, D, lado })) out[k] += p;
+  return out;
+}
+
+// Radiación anual que reciben los paneles (kWh/m²·año sobre el plano del panel) si se instalan en cada punto: la de
+// la serie por el factor de la celda (relieve y sombra entre filas según la pendiente) y la sombra de los
+// aerogeneradores. Es el criterio con que se llena el campo solar.
+export function mapaPanelFV(rej, { lat, beta, gcr, gti, turb, hub, D }) {
+  const pts = puntosRejilla(rej), f = factorCeldasFV(pts, rej, { lat, beta, gcr });
+  const anual = gti ? gti.reduce((a, b) => a + b, 0) / 1000 : 1000;
+  const sT = sombraEnPuntos(pts, turb, { lat, beta, hub, D, lado: Math.min(rej.x1 - rej.x0, rej.y1 - rej.y0) / (rej.n - 1) });
+  return Float32Array.from(f, (x, k) => anual * x * (1 - Math.min(1, sT[k])));
 }
 
 // Mínimo y máximo de un mapa dentro de la zona (poli en metros locales), para la escala de colores.

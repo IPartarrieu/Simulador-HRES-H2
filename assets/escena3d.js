@@ -4,60 +4,12 @@
 // (recurso eólico o solar, calculado en zona.js con la grilla `rejilla`). Usa three.js (vendor/three).
 import * as THREE from "../vendor/three/three.module.min.js";
 import { OrbitControls } from "../vendor/three/OrbitControls.js";
-import { proyeccion, centro } from "./zona.js?v=20261015f";
+import { relieve, mosaico, nivelTesela as nivel, N_RELIEVE as N } from "./zona.js?v=20261015g";
 
-const N = 64;                                  // grilla de elevación N × N
 const cacheTerreno = new Map();
 const lim = (v, a, b) => Math.min(b, Math.max(a, v));
 
 /* ---------- Datos del terreno ---------- */
-
-// Mosaico de teselas web (Mercator) que cubre la caja [norte, sur, oeste, este] al nivel z.
-// Devuelve el lienzo y la función que pasa de [lat, lon] a píxeles del lienzo.
-async function mosaico(url, { norte, sur, oeste, este }, z) {
-  const merc = ([la, lo]) => {
-    const s = Math.sin((la * Math.PI) / 180), n = 256 * 2 ** z;
-    return [((lo + 180) / 360) * n, (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * n];
-  };
-  const [x0, y0] = merc([norte, oeste]), [x1, y1] = merc([sur, este]);
-  const lienzo = document.createElement("canvas");
-  lienzo.width = Math.max(1, Math.round(x1 - x0)); lienzo.height = Math.max(1, Math.round(y1 - y0));
-  const ctx = lienzo.getContext("2d", { willReadFrequently: true });
-  const tareas = [];
-  for (let tx = Math.floor(x0 / 256); tx <= Math.floor(x1 / 256); tx++) for (let ty = Math.floor(y0 / 256); ty <= Math.floor(y1 / 256); ty++) {
-    tareas.push(new Promise((ok, mal) => {
-      const img = new Image(); img.crossOrigin = "anonymous";
-      img.onload = () => { ctx.drawImage(img, tx * 256 - x0, ty * 256 - y0); ok(); };
-      img.onerror = () => mal(new Error("no se pudo descargar una tesela"));
-      img.src = url(z, tx, ty);
-    }));
-  }
-  await Promise.all(tareas);
-  return { lienzo, ctx, px: (p) => { const [x, y] = merc(p); return [x - x0, y - y0]; } };
-}
-const nivel = (caja, pixeles, max) => lim(Math.floor(Math.log2((156543.03 * Math.cos((((caja.norte + caja.sur) / 2) * Math.PI) / 180) * pixeles) / caja.anchoM)), 3, max);
-
-// Elevación de las Terrain Tiles de AWS (formato Terrarium: h = R·256 + G + B/256 − 32768 m).
-async function elevaciones(puntos, caja) {
-  const m = await mosaico((z, x, y) => `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`, caja, nivel(caja, 512, 14));
-  const { data, width, height } = m.ctx.getImageData(0, 0, m.lienzo.width, m.lienzo.height);
-  const h = puntos.map((p) => {
-    const [x, y] = m.px(p), k = (lim(Math.round(y), 0, height - 1) * width + lim(Math.round(x), 0, width - 1)) * 4;
-    return data[k + 3] < 255 ? NaN : data[k] * 256 + data[k + 1] + data[k + 2] / 256 - 32768;
-  });
-  // Píxeles sin dato (fuera de una tesela o con valores imposibles en Chile) → mediana de la grilla.
-  const validos = h.filter((v) => v > -500 && v < 7000).sort((a, b) => a - b);
-  const mediana = validos.length ? validos[Math.floor(validos.length / 2)] : 0;
-  const e = h.map((v) => (v > -500 && v < 7000 ? v : mediana));
-  // Picos aislados (píxeles erróneos en el borde de una tesela): más de 150 m sobre o bajo la mediana de sus vecinos.
-  return e.map((v, k) => {
-    const i = Math.floor(k / N), j = k % N, vec = [];
-    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) if ((a || b) && i + a >= 0 && i + a < N && j + b >= 0 && j + b < N) vec.push(e[(i + a) * N + j + b]);
-    vec.sort((x, y) => x - y);
-    const med = vec[Math.floor(vec.length / 2)];
-    return Math.abs(v - med) > 150 ? med : v;
-  });
-}
 
 // Imagen satelital (Esri) de la caja, con la zona resaltada: afuera queda más oscuro.
 async function satelite(caja, ptsZona) {
@@ -71,19 +23,12 @@ async function satelite(caja, ptsZona) {
   return lienzo;
 }
 
+// Relieve (zona.js) e imagen satelital de la misma caja.
 async function terreno(pts) {
   const clave = JSON.stringify(pts);
   if (cacheTerreno.has(clave)) return cacheTerreno.get(clave);
-  const pr = proyeccion(centro(pts)), loc = pts.map(pr.a);
-  const X = loc.map((p) => p[0]), Y = loc.map((p) => p[1]);
-  const marg = 0.18 * Math.max(Math.max(...X) - Math.min(...X), Math.max(...Y) - Math.min(...Y));
-  const [x0, x1, y0, y1] = [Math.min(...X) - marg, Math.max(...X) + marg, Math.min(...Y) - marg, Math.max(...Y) + marg];
-  const puntos = [];
-  for (let i = 0; i < N; i++) for (let j = 0; j < N; j++) puntos.push(pr.b([x0 + (j / (N - 1)) * (x1 - x0), y1 - (i / (N - 1)) * (y1 - y0)]));
-  const [no, oe] = pr.b([x0, y1]), [su, es] = pr.b([x1, y0]);
-  const caja = { norte: no, sur: su, oeste: oe, este: es, anchoM: x1 - x0 };
-  const [elev, imagen] = await Promise.all([elevaciones(puntos, caja), satelite(caja, pts).catch(() => null)]);
-  const t = { x0, x1, y0, y1, elev, imagen };
+  const rel = await relieve(pts);
+  const t = { ...rel, imagen: await satelite(rel.caja, pts).catch(() => null) };
   cacheTerreno.set(clave, t);
   return t;
 }

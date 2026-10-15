@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import { decodificarSerie } from "../assets/codec.js";
 import { CATALOGO, ECONOMIA_TESIS, prepararCaso, simular, crf, tasaReal, npcUnidad, potenciaWT } from "../assets/model.js";
-import { estelaParque, eficienciaParque, distribucionPaneles, sombraFilas, proyeccion, interaccionPV, distribuirAerogeneradores } from "../assets/zona.js";
+import { estelaParque, eficienciaParque, distribucionPaneles, sombraFilas, proyeccion, interaccionPV, distribuirAerogeneradores, factorCeldasFV } from "../assets/zona.js";
 
 const datos = JSON.parse(readFileSync(new URL("../data/ejemplo_45s_2018.json", import.meta.url)));
 datos.demanda_kw = decodificarSerie(datos.demanda_codificada);
@@ -68,16 +68,23 @@ const otros = [
 // el campo solar que comparte el terreno sí la recibe, y la simulación la descuenta de la energía FV.
 const chica = [[-37.003, -72.003], [-37.003, -71.997], [-36.997, -71.997], [-36.997, -72.003]];
 const opI = { D, sx: 7, sy: 4, eje: 0, compartir: true, libre: 1, hub: wt.hub, beta: 37, nMax: 150 };
-const posI = distribuirAerogeneradores(chica, opI).posiciones, inter = interaccionPV(chica, posI, opI);
+const posI = distribuirAerogeneradores(chica, opI).posiciones, inter = interaccionPV(chica, posI, { ...opI, gcr: 0.5 }, null);
 const filaN = (n, k) => inter.tabla[n * inter.K + k - 1];
 const casoI = prepararCaso({ demanda: datos.demanda_kw, wtKw: datos.tesis.wt_kw, pvKw: datos.tesis.pv_kw, equipos, economia: ECONOMIA_TESIS,
-  sombraWt: { ...inter, m2Panel: inter.m2Celda } });
+  campoFV: { ...inter, m2Panel: inter.m2Celda } });
 const pvTotal = (c) => simular(c, [inter.nMax, inter.K, 0, 0, 0, 0], true).series.pv.reduce((x, y) => x + y, 0);
 const pvSin = pvTotal(caso), pvCon = pvTotal(casoI);
 otros.push(
-  ["interacción: 0 aerogeneradores, 0 sombra", Math.max(...inter.tabla.slice(0, inter.K)), 0, 0],
-  ["interacción: zona llena, sombra > 0", +(filaN(inter.nMax, inter.K) > 0), 1, 0],
-  ["interacción: la simulación descuenta la sombra de la energía FV", pvCon / pvSin, 1 - filaN(inter.nMax, inter.K), 1e-6],
+  ["campo FV sin relieve ni aerogeneradores: solo la sombra entre filas", filaN(0, inter.K), 1 - sombraFilas(-37, b, 0.5), 2e-3],
+  ["interacción: zona llena, la sombra de los aerogeneradores baja el factor", +(filaN(inter.nMax, inter.K) < filaN(0, inter.K)), 1, 0],
+  ["interacción: la simulación aplica el factor del campo FV", pvCon / pvSin, filaN(inter.nMax, inter.K), 1e-6],
+);
+// Ladera de 10 % (5,7°): al norte las filas se sombrean menos que en plano; al sur, más.
+const ladera = (k) => ({ x0: -500, x1: 500, y0: -500, y1: 500, n: 64, elev: Array.from({ length: 64 * 64 }, (_, q) => k * (500 - (Math.floor(q / 64) / 63) * 1000)) });
+const fl = (rel) => factorCeldasFV([[0, 0]], rel, { lat: -37, beta: 37, gcr: 0.5 })[0];
+otros.push(
+  ["ladera al norte rinde más que el plano", +(fl(ladera(-0.1)) > fl(null)), 1, 0],
+  ["ladera al sur rinde menos que el plano", +(fl(ladera(0.1)) < fl(null)), 1, 0],
 );
 for (const [nombre, a, e, tol] of otros) {
   const ok = cerca(a, e, tol); fallas += ok ? 0 : 1;

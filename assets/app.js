@@ -1,10 +1,10 @@
 // Página del Simulador HRES-H2: arma el caso con lo que elige la persona, reparte las simulaciones entre
 // Web Workers, ejecuta el método de optimización (uno o varios objetivos) y muestra los resultados.
-import { CATALOGO, MODULOS, NOMBRES, ECONOMIA_TESIS, FUENTES, OBJETIVOS_MO, potenciaPV, potenciaWT, limitesPorDefecto, flujoCaja, crf, tasaReal } from "./model.js?v=20261015f";
-import { monteCarlo, genetico, shade, pso, gwo, woa, eo, nsga2, mopso, aptitud, PENALIZACION } from "./optimizers.js?v=20261015f";
-import * as dem from "./demand.js?v=20261015f";
-import { svgDiagrama, svgLayout, descargarSVG, descargarPNG, descargar } from "./diagram.js?v=20261015f";
-import * as zona from "./zona.js?v=20261015f";
+import { CATALOGO, MODULOS, NOMBRES, ECONOMIA_TESIS, FUENTES, OBJETIVOS_MO, potenciaPV, potenciaWT, limitesPorDefecto, flujoCaja, crf, tasaReal } from "./model.js?v=20261015g";
+import { monteCarlo, genetico, shade, pso, gwo, woa, eo, nsga2, mopso, aptitud, PENALIZACION } from "./optimizers.js?v=20261015g";
+import * as dem from "./demand.js?v=20261015g";
+import { svgDiagrama, svgLayout, descargarSVG, descargarPNG, descargar } from "./diagram.js?v=20261015g";
+import * as zona from "./zona.js?v=20261015g";
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -640,7 +640,7 @@ class Pool {
   constructor(n) {
     this.pend = new Map(); this.id = 0;
     this.workers = Array.from({ length: n }, () => {
-      const w = new Worker(new URL("./worker.js?v=20261015f", import.meta.url), { type: "module" });
+      const w = new Worker(new URL("./worker.js?v=20261015g", import.meta.url), { type: "module" });
       w.onmessage = (e) => {
         const p = this.pend.get(e.data.id);
         if (!p) return;
@@ -701,15 +701,18 @@ async function armarCaso() {
   const s = await seriesUnidad();
   const t = terreno(), d = t && distribucion();
   const est = d && (await estelaActual(d));
-  const fPv = d ? 1 - d.paneles.sombra : 1;                     // sombra entre filas
-  let sombraWt = null;                                          // sombra de los aerogeneradores sobre los paneles
-  if (est && estado.arq.pv) {
-    const op = { ...d.op, hub: estado.equipos.wt.hub, beta: d.paneles.beta, nMax: est.nMax }, clave = JSON.stringify([op, estado.zona.pts]);
-    if (cacheSombra.orden !== d.posiciones || cacheSombra.clave !== clave) Object.assign(cacheSombra, { orden: d.posiciones, clave, val: zona.interaccionPV(estado.zona.pts, d.posiciones, op) });
-    sombraWt = { ...cacheSombra.val, m2Panel: d.paneles.m2PorPanel };
+  // Campo solar: factor de producción según dónde caen los paneles (relieve, sombra entre filas y de los aerogeneradores).
+  let campoFV = null;
+  if (d && estado.arq.pv) {
+    const rel = await zona.relieve(estado.zona.pts).catch(() => null);
+    const pos = est ? d.posiciones : [];
+    const op = { ...d.op, hub: estado.equipos.wt.hub, beta: d.paneles.beta, gcr: d.paneles.gcr, nMax: est ? est.nMax : 0 };
+    const clave = JSON.stringify([op, estado.zona.pts, !!rel]);
+    if (cacheSombra.orden !== pos || cacheSombra.clave !== clave) Object.assign(cacheSombra, { orden: pos, clave, val: zona.interaccionPV(estado.zona.pts, pos, op, rel) });
+    campoFV = { ...cacheSombra.val, m2Panel: d.paneles.m2PorPanel };
   }
-  return { demanda: Array.from(estado.demanda), wtKw: Array.from(s.wt), pvKw: Array.from(s.pv, (x) => x * fPv), equipos: clonar(estado.equipos), economia: leerEconomia(),
-    terreno: t && { area: t.area, aWt: t.aWt, aPv: t.aPv }, estela: est && { eta: est.eta, sec: est.sec, S: est.S, nMax: est.nMax }, sombraWt };
+  return { demanda: Array.from(estado.demanda), wtKw: Array.from(s.wt), pvKw: Array.from(s.pv), equipos: clonar(estado.equipos), economia: leerEconomia(),
+    terreno: t && { area: t.area, aWt: t.aWt, aPv: t.aPv }, estela: est && { eta: est.eta, sec: est.sec, S: est.S, nMax: est.nMax }, campoFV };
 }
 
 let ultimoGrafico = 0;
@@ -1040,7 +1043,7 @@ function renderLayoutResultado(cfg, r, meta) {
   }
   const pv = equipos.pv, areaMod = pv.pr / (pv.eff / 100), p = dist.paneles;
   const pitch = (2 * Math.sqrt(areaMod * 1.75)) / p.gcr;          // mesas de 2 paneles en vertical
-  const geo = zona.layoutResultado(z.pts, { posiciones: dist.posiciones, ...dist.op, nWt: Math.min(cfg[0], dist.posiciones.length), areaPv: cfg[1] * p.m2PorPanel, hub: equipos.wt.hub, beta: p.beta });
+  const geo = zona.layoutResultado(z.pts, { posiciones: dist.posiciones, ...dist.op, nWt: Math.min(cfg[0], dist.posiciones.length), areaPv: cfg[1] * p.m2PorPanel, hub: equipos.wt.hub, beta: p.beta, gcr: p.gcr, rel: zona.relieveGuardado(z.pts) });
   const bloque = ["con", "ele", "ht", "fc", "bat", "dg"].map((k) => [k, MODULOS.indexOf(k)]).filter(([, i]) => cfg[i] > 0)
     .map(([k, i]) => `${NOMBRES[k][0].toLowerCase()}${NOMBRES[k].slice(1)} ${capacidad(k, cfg[i], equipos)}`);
   const leyenda = [["zona", `Zona: ${fmt(z.area / 1e4, 1)} ha`]];
@@ -1057,20 +1060,21 @@ function renderLayoutResultado(cfg, r, meta) {
   if (!geo.completo) notas.push("El campo fotovoltaico no cabe completo en el terreno que dejan libre los aerogeneradores.");
   const perd = [];
   if (cfg[0] && dist.estela) perd.push(`estelas entre aerogeneradores ${fmt((1 - zona.eficienciaParque(dist.estela, cfg[0])) * 100, 1)} % de la energía eólica`);
-  if (cfg[1]) perd.push(`sombra entre filas ${fmt(p.sombra * 100, 1)} %`);
-  if (cfg[0] && cfg[1]) perd.push(`sombra de los aerogeneradores sobre los paneles ${fmt(geo.sombraPv * 100, 2)} %`);
+  if (cfg[1]) perd.push(`campo solar al ${fmt(geo.factorPv * 100, 1)} % de un panel sin sombras (${geo.conRelieve ? "relieve, " : ""}sombra entre filas${cfg[0] ? ` y de los aerogeneradores, esta última ${fmt(geo.sombraPv * 100, 2)} %` : ""}); el terreno libre rinde entre ${fmt(geo.factorRango[0] * 100, 1)} y ${fmt(geo.factorRango[1] * 100, 1)} %`);
   if (perd.length) notas.push(`Pérdidas descontadas en la simulación: ${perd.join("; ")}.`);
-  notas.push(`Los aerogeneradores están en las posiciones que más energía dan con las estelas de la rosa de vientos; los paneles se agrupan alrededor del bloque de potencia${dist.op.compartir ? ", también entre los aerogeneradores," : ""} y evitan su sombra mientras haya terreno sin ella. Es un anteproyecto: el trazado final requiere topografía, accesos y un estudio de viento en terreno.`);
+  notas.push(`Los aerogeneradores están en las posiciones que más energía dan con las estelas de la rosa de vientos; los paneles ocupan primero el terreno de mayor recurso solar${dist.op.compartir ? ", también entre los aerogeneradores" : ""} (laderas al norte, sin sombra del relieve ni de los aerogeneradores) y, entre celdas que rinden casi lo mismo, las más cercanas al bloque de potencia. Es un anteproyecto: el trazado final requiere topografía, accesos y un estudio de viento en terreno.`);
   $("#layout-nota").textContent = notas.join(" ");
 }
 
 // Mapa de recurso sobre el terreno de la vista 3D (se calcula una vez por vista y capa).
 let datosMapa = null;
 const CAPAS = {
-  viento: { titulo: "Viento medio anual a la altura del buje (m/s), con las estelas de los aerogeneradores", unidad: "m/s", dec: 2,
+  viento: { paleta: "viento", titulo: "Viento medio anual a la altura del buje (m/s), con las estelas de los aerogeneradores", unidad: "m/s", dec: 2,
     nota: "Velocidad media a la altura del buje según la serie de viento y su rosa de vientos, menos el déficit de las estelas (Jensen). No incluye el efecto del relieve sobre el viento: la serie es de un solo punto." },
-  solar: { titulo: "Radiación solar anual sobre el suelo (kWh/m²·año)", unidad: "kWh/m²", dec: 0,
-    nota: "Según la pendiente y orientación del terreno (las laderas al norte reciben más), la sombra del relieve cercano y de los aerogeneradores, con la nubosidad de la serie. Los paneles, inclinados en la latitud, reciben más que el suelo." },
+  solar: { titulo: "Radiación solar anual sobre el suelo (kWh/m²·año)", unidad: "kWh/m²", dec: 0, paleta: "solar",
+    nota: "Según la pendiente y orientación del terreno (las laderas al norte reciben más), la sombra del relieve cercano y de los aerogeneradores, con la nubosidad de la serie. Es el recurso del suelo; los paneles van en mesas con inclinación fija y reciben lo de la capa «Recurso solar en los paneles»." },
+  panel: { titulo: "Radiación anual sobre los paneles si se instalan en cada punto (kWh/m²·año)", unidad: "kWh/m²", dec: 0, paleta: "solar",
+    nota: "Radiación de la serie sobre el plano del panel, descontando la sombra del relieve, la sombra entre filas según la pendiente (en laderas al norte las filas se sombrean menos) y la de los aerogeneradores. El campo solar se llena desde lo más alto de esta escala." },
 };
 function capa3d() {
   const tipo = $("#v3-capa").value, d = datosMapa, v = vista3d;
@@ -1083,13 +1087,13 @@ function capa3d() {
   }
   const wt = d.equipos.wt;
   const rej = tipo === "viento" ? { ...v.rejilla, n: 160 } : v.rejilla;    // el viento, más fino: las estelas son angostas
-  d.mapas[tipo] ??= tipo === "viento"
-    ? zona.mapaViento(rej, { turb: d.geo.turb, D: wt.rotor, hub: wt.hub, clima: d.clima, eje: d.eje })
-    : zona.mapaSolar(rej, { lat: zona.centro(d.pts)[0], beta: d.beta, gti: d.clima.gti_wm2, turb: d.geo.turb, hub: wt.hub, D: wt.rotor });
-  const r = v.capa(d.mapas[tipo], tipo, zona.rangoEnZona(rej, d.mapas[tipo], d.geo.poli)), c = CAPAS[tipo];
+  const sol = { lat: zona.centro(d.pts)[0], beta: d.beta, gcr: d.largoMesa / d.pitchM, gti: d.clima.gti_wm2, turb: d.geo.turb, hub: wt.hub, D: wt.rotor };
+  d.mapas[tipo] ??= tipo === "viento" ? zona.mapaViento(rej, { turb: d.geo.turb, D: wt.rotor, hub: wt.hub, clima: d.clima, eje: d.eje })
+    : tipo === "panel" ? zona.mapaPanelFV(rej, sol) : zona.mapaSolar(rej, sol);
+  const c = CAPAS[tipo], r = v.capa(d.mapas[tipo], c.paleta, zona.rangoEnZona(rej, d.mapas[tipo], d.geo.poli));
   $("#v3-escala-titulo").textContent = `${c.titulo}. Escala dentro de la zona:`;
   $("#v3-min").textContent = `${fmt(r.min, c.dec)} ${c.unidad}`; $("#v3-max").textContent = `${fmt(r.max, c.dec)} ${c.unidad}`;
-  $("#v3-barra").style.background = `linear-gradient(90deg, ${v.paletas[tipo].join(", ")})`;
+  $("#v3-barra").style.background = `linear-gradient(90deg, ${v.paletas[c.paleta].join(", ")})`;
   $("#v3-escala-nota").textContent = c.nota; $("#v3-escala-nota").className = "fine";
   $("#v3-escala").hidden = false;
 }
@@ -1102,7 +1106,7 @@ async function mostrar3D(op) {
   const ley = $("#leyenda-3d"); ley.replaceChildren();
   const chip = (color, texto) => { const s = document.createElement("span"), i = document.createElement("i"); i.style.background = color; s.append(i, texto); ley.appendChild(s); };
   try {
-    const m = await import("./escena3d.js?v=20261015f");
+    const m = await import("./escena3d.js?v=20261015g");
     chip("#FF8A3D", "Zona");
     if (op.cfg[0]) chip("#F7F8FA", `Aerogeneradores (${fmt(op.cfg[0])})`);
     if (op.cfg[1]) chip("#2456A6", `Paneles (${fmt(op.cfg[1])})`);
