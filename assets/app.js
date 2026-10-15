@@ -4,6 +4,7 @@ import { CATALOGO, MODULOS, NOMBRES, ECONOMIA_TESIS, FUENTES, OBJETIVOS_MO, pote
 import { monteCarlo, genetico, shade, pso, gwo, woa, eo, nsga2, mopso, aptitud, PENALIZACION } from "./optimizers.js";
 import * as dem from "./demand.js";
 import { svgDiagrama, descargarSVG, descargarPNG, descargar } from "./diagram.js";
+import * as zona from "./zona.js";
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -26,7 +27,7 @@ const REF_TESIS = {
 
 const COSTOS = [["ci", "Inversión (USD)"], ["rep", "Reemplazo (USD)"], ["om", "O&M (USD/año)"], ["vu", "Vida útil (años)"]];
 const PARAMS_EQUIPO = {
-  wt: [["pr", "Potencia nominal (kW)"], ["vcin", "V. de arranque (m/s)"], ["vr", "V. nominal (m/s)"], ["vcout", "V. de corte (m/s)"], ["hub", "Altura del buje (m)"], ...COSTOS],
+  wt: [["pr", "Potencia nominal (kW)"], ["vcin", "V. de arranque (m/s)"], ["vr", "V. nominal (m/s)"], ["vcout", "V. de corte (m/s)"], ["hub", "Altura del buje (m)"], ["rotor", "Diámetro del rotor (m)"], ...COSTOS],
   pv: [["pr", "Potencia nominal (kW)"], ["eff", "Eficiencia (%)"], ["alfa", "Coef. de temperatura (%/°C)"], ["noct", "NOCT (°C)"], ["fpv", "Factor de reducción"], ...COSTOS],
   con: [["pr", "Potencia (kW)"], ["eta", "Eficiencia (0 a 1)"], ...COSTOS],
   ele: [["pr", "Potencia (kW)"], ["eta", "Eficiencia (0 a 1)"], ...COSTOS],
@@ -38,7 +39,7 @@ const PARAMS_EQUIPO = {
     ["omKwh", "O&M (USD por kWh generado)"], ["vidaH", "Vida (horas de operación)"], ["ci", "Inversión (USD)"], ["rep", "Reemplazo (USD)"], ["vu", "Vida máxima (años)"]],
 };
 const FISICOS = { wt: ["pr", "vcin", "vr", "vcout", "hub"], pv: ["pr", "eff", "alfa", "noct", "fpv"] };
-const POSITIVOS = ["pr", "cap", "eta", "eff", "etaC", "etaD", "cRate", "ciclos", "vidaH", "fpv"];
+const POSITIVOS = ["rotor", "pr", "cap", "eta", "eff", "etaC", "etaD", "cRate", "ciclos", "vidaH", "fpv"];
 const HASTA_UNO = ["eta", "etaC", "etaD", "socMin", "cargaMin", "fpv", "autod"];
 const UNIDAD = { wt: "kW", pv: "kW", con: "kW", ele: "kW", ht: "kWh", fc: "kW", bat: "kWh", dg: "kW" };
 const COLORES = { wt: "#2A9D8F", pv: "#E9A23B", con: "#7F8C9D", ele: "#3E7BD6", ht: "#6C5CE7", fc: "#5BC2B4", bat: "#3FAE6A", dg: "#B5651D" };
@@ -47,7 +48,7 @@ const poblacional = (nombre) => [["poblacion", nombre, 50], ["generaciones", "It
 const METODOS = {
   shade: {
     nombre: "Evolución diferencial adaptativa (SHADE) · recomendado",
-    desc: "Adapta sus parámetros, usa reglas de factibilidad y termina con una búsqueda local entera. Fue el más estable en las pruebas con el caso de la tesis.",
+    desc: "Adapta sus parámetros, usa reglas de factibilidad y termina con una búsqueda local entera. Fue el más estable en las pruebas con el caso de ejemplo.",
     params: [["poblacion", "Población", 60], ["generaciones", "Generaciones", 200]],
     rapido: { poblacion: 40, generaciones: 100 }, tesis: null, fn: shade,
     evals: (p) => p.poblacion * (p.generaciones + 1) + 400,
@@ -72,26 +73,26 @@ const METODOS = {
   },
   woa: {
     nombre: "Algoritmo de la ballena (WOA)",
-    desc: "Cerco de la presa y ataque en espiral. Fue el mejor de cuatro métodos en Diab et al. (2019), pero en el caso de la tesis sus resultados varían más entre corridas.",
+    desc: "Cerco de la presa y ataque en espiral. Fue el mejor de cuatro métodos en Diab et al. (2019), pero en el caso de ejemplo sus resultados varían más entre corridas.",
     params: poblacional("Ballenas"), rapido: { poblacion: 40, generaciones: 100 }, tesis: null, fn: woa,
     evals: (p) => p.poblacion * (p.generaciones + 1) + 400,
   },
   ga: {
-    nombre: "Algoritmo genético (tesis)",
-    desc: "Como en la tesis (DEAP): torneo de 3, cruce en dos puntos y mutación entera uniforme. Las soluciones que no cumplen la confiabilidad se penalizan.",
+    nombre: "Algoritmo genético",
+    desc: "Al estilo de DEAP: torneo de 3, cruce en dos puntos y mutación entera uniforme. Las soluciones que no cumplen la confiabilidad se penalizan.",
     params: [["poblacion", "Población", 100], ["generaciones", "Generaciones", 150], ["cxpb", "Prob. de cruce", 0.7], ["mutpb", "Prob. de mutación", 0.2], ["indpb", "Prob. por gen", 0.2]],
     rapido: { poblacion: 80, generaciones: 80 }, tesis: { poblacion: 500, generaciones: 1000 }, fn: genetico,
     evals: (p) => Math.round(p.poblacion * (1 + 0.8 * p.generaciones)),
   },
   ha: {
-    nombre: "Algoritmo híbrido CS-HS-SA (tesis)",
+    nombre: "Algoritmo híbrido CS-HS-SA",
     desc: "Búsqueda caótica, armónica y recocido simulado (Zhang et al.), en corridas independientes. Se queda con la mejor corrida.",
     params: [["corridas", "Corridas", 40], ["iteraciones", "Iteraciones por corrida", 1000], ["hmcr", "HMCR", 0.9], ["parMin", "PAR mínimo", 0.1], ["parMax", "PAR máximo", 1.0], ["t0", "Temperatura inicial", 1000], ["s", "Enfriamiento", 0.97]],
     rapido: { corridas: 16, iteraciones: 1000 }, tesis: { corridas: 500, iteraciones: 1000 },
     evals: (p) => p.corridas * (p.iteraciones + 5),
   },
   mc: {
-    nombre: "Monte Carlo (tesis)",
+    nombre: "Monte Carlo",
     desc: "Prueba configuraciones al azar dentro de los límites y se queda con la mejor que cumple la confiabilidad.",
     params: [["muestras", "Muestras", 50000]],
     rapido: { muestras: 20000 }, tesis: { muestras: 500000 },
@@ -120,7 +121,10 @@ const estado = {
   equipos: Object.fromEntries(MODULOS.map((k) => [k, clonar(CATALOGO[k].find((d) => d.id === DEFECTO_IDS[k]))])),
   limites: null, limitesEditados: false,
   resultado: null, pareto: null, corriendo: false,
+  zona: null,           // { pts, area (m²), centro, elev }
 };
+let mapaZona = null, mapaLayout = null;
+const cacheLayout = {};
 let pool = null, detener = false;
 const graficos = {};
 
@@ -184,11 +188,17 @@ async function cargarDemanda() {
 
 /* ---------- 2. Recurso ---------- */
 
-function recursoListo() { return estado.recurso !== "ubicacion" || !!estado.clima; }
+const RECURSO_CON_CLIMA = ["estacion", "ubicacion", "csv"];
+function recursoListo() { return !RECURSO_CON_CLIMA.includes(estado.recurso) || !!estado.clima; }
 
 async function climaActual() {
   if (estado.recurso === "era5") return (await dem.datosEjemplo()).era5;
   return estado.clima;
+}
+function nombreRecurso() {
+  if (estado.recurso === "tesis") return "Series de ejemplo lat. 45°S (2018)";
+  if (estado.recurso === "era5") return "ERA5 de ejemplo lat. 45°S (2018)";
+  return estado.climaNombre;
 }
 
 // Potencia horaria de UNA unidad de aerogenerador y de panel, según el recurso elegido.
@@ -204,22 +214,34 @@ async function cambiarRecurso() {
   if (estado.recurso === "tesis") {
     for (const k of ["wt", "pv"]) if (estado.equipos[k].id !== TESIS_IDS[k]) estado.equipos[k] = clonar(CATALOGO[k].find((d) => d.id === TESIS_IDS[k]));
   }
+  if (RECURSO_CON_CLIMA.includes(estado.recurso)) estado.clima = null;
   renderEquipos();
-  await describirRecurso();
+  if (estado.recurso === "estacion") await cargarEstacion();
+  else if (estado.recurso === "csv" && $("#rec-archivo").files[0]) await cargarRecursoCSV();
+  else await describirRecurso();
   cambiosGenerales();
 }
 
+// El eje del viento de la distribución se toma del recurso cuando este lo trae.
 async function describirRecurso() {
-  if (!recursoListo()) { estadoTexto("#recurso-estado", "Ingresa la ubicación y el año, y descarga el clima.", "warn"); return; }
+  if (!recursoListo()) {
+    const falta = { ubicacion: "Ingresa la ubicación y el año, y descarga el clima.", csv: "Elige un archivo con tus series horarias.", estacion: "Cargando la serie…" };
+    estadoTexto("#recurso-estado", falta[estado.recurso], "warn"); renderDistribucion(); return;
+  }
   const s = await seriesUnidad();
+  const c = estado.recurso === "tesis" ? (await dem.datosEjemplo()).era5 : await climaActual();
+  if (c && Number.isFinite(c.eje_viento)) {
+    $("#lay-eje").value = c.eje_viento;
+    $("#lay-eje-nota").textContent = `Eje tomado del recurso (${nombreRecurso()}): ${c.eje_viento}°, con ${fmt(c.concentracion_viento * 100)} % de concentración de la energía del viento en ese eje.`;
+  } else $("#lay-eje-nota").textContent = "Tu recurso no trae la dirección del viento: ingresa el eje dominante a mano (0° = norte-sur, 90° = este-oeste).";
   const fp = (serie, pr) => (serie.reduce((a, b) => a + Math.min(b, pr), 0) / serie.length / pr) * 100;
-  const origen = estado.recurso === "tesis" ? "Serie de la tesis (mediciones in situ, 2018)" : estado.recurso === "era5" ? "ERA5, la localidad remota 2018" : estado.climaNombre;
-  estadoTexto("#recurso-estado", `${origen}. Factor de planta con los equipos elegidos: aerogenerador ${fmt(fp(s.wt, estado.equipos.wt.pr), 1)} %, panel ${fmt(fp(s.pv, estado.equipos.pv.pr), 1)} %.`, "ok");
+  estadoTexto("#recurso-estado", `${nombreRecurso()}. Factor de planta con los equipos elegidos: aerogenerador ${fmt(fp(s.wt, estado.equipos.wt.pr), 1)} %, panel ${fmt(fp(s.pv, estado.equipos.pv.pr), 1)} %.`, "ok");
+  renderDistribucion();
 }
 
 async function cargarUbicacion() {
   const lat = num("#ub-lat"), lon = num("#ub-lon"), anio = Math.round(num("#ub-anio"));
-  if (Math.abs(lat) > 90 || Math.abs(lon) > 180) { estadoTexto("#recurso-estado", "La latitud va de −90 a 90 y la longitud de −180 a 180.", "err"); return; }
+  if (!zona.enRegion([lat, lon])) { estadoTexto("#recurso-estado", "El punto debe estar en la región de prueba: latitud −39,7 a −34,6 y longitud −74 a −70,3.", "err"); return; }
   estadoTexto("#recurso-estado", "Descargando el clima horario desde Open-Meteo…");
   $("#ub-cargar").disabled = true;
   try {
@@ -231,6 +253,32 @@ async function cargarUbicacion() {
     estadoTexto("#recurso-estado", `No se pudo descargar el clima: ${err.message}`, "err");
   }
   $("#ub-cargar").disabled = false;
+  cambiosGenerales();
+}
+
+async function cargarEstacion() {
+  try {
+    const r = await dem.climaEstacion($("#est-id").value);
+    estado.clima = r.clima; estado.climaNombre = r.nombre;
+    await describirRecurso();
+  } catch (err) {
+    estado.clima = null;
+    estadoTexto("#recurso-estado", `No se pudo cargar la serie: ${err.message}`, "err");
+  }
+  cambiosGenerales();
+}
+
+async function cargarRecursoCSV() {
+  const f = $("#rec-archivo").files[0];
+  if (!f) return;
+  try {
+    const r = dem.climaCSV(await f.text(), f.name, estado.zona?.elev?.media || 0);
+    estado.clima = r.clima; estado.climaNombre = `Series propias · ${r.nombre}`;
+    await describirRecurso();
+  } catch (err) {
+    estado.clima = null;
+    estadoTexto("#recurso-estado", err.message, "err");
+  }
   cambiosGenerales();
 }
 
@@ -276,7 +324,7 @@ function renderEquipos() {
     });
     div.appendChild(sel);
     const fuente = fuenteEquipo(eq); if (fuente) div.appendChild(fuente);
-    if (bloqueado) { const p = document.createElement("p"); p.className = "nota"; p.textContent = "La serie de la tesis corresponde a este equipo. Para comparar marcas, usa el clima ERA5."; div.appendChild(p); }
+    if (bloqueado) { const p = document.createElement("p"); p.className = "nota"; p.textContent = "Las series de ejemplo corresponden a este equipo. Para comparar marcas, usa un clima ERA5 o tus propias series."; div.appendChild(p); }
     const det = document.createElement("details");
     const sum = document.createElement("summary"); sum.textContent = "Parámetros"; det.appendChild(sum);
     const grid = document.createElement("div"); grid.className = "params";
@@ -300,6 +348,99 @@ function renderEquipos() {
     det.appendChild(grid); div.appendChild(det);
     cont.appendChild(div);
   }
+}
+
+/* ---------- Zona y distribución ---------- */
+
+function iniciarZona() {
+  if (typeof L === "undefined") { estadoTexto("#zona-estado", "No se pudo cargar el mapa.", "err"); return; }
+  const botones = (dibujando, n) => {
+    $("#zona-cerrar").disabled = !dibujando || n < 3; $("#zona-deshacer").disabled = !dibujando || !n;
+    if (dibujando) estadoTexto("#zona-estado", n < 3 ? `Marca al menos 3 vértices (${n} por ahora).` : `${n} vértices. Cierra el polígono para calcular la zona.`);
+  };
+  mapaZona = zona.crearMapa($("#mapa"), { alCerrar: cerrarZona, alAviso: (t) => estadoTexto("#zona-estado", t, "warn"), alCambiarModo: botones });
+  $("#zona-dibujar").addEventListener("click", () => mapaZona.dibujar());
+  $("#zona-cerrar").addEventListener("click", () => mapaZona.cerrar());
+  $("#zona-deshacer").addEventListener("click", () => mapaZona.deshacer());
+  $("#zona-borrar").addEventListener("click", () => mapaZona.borrar());
+}
+
+async function cerrarZona(pts) {
+  $("#zona-kpis").replaceChildren();
+  estado.zona = null;
+  if (!pts) { estadoTexto("#zona-estado", "Aún no hay una zona dibujada."); actualizarZona(); return; }
+  const area = zona.areaM2(pts), km2 = area / 1e6;
+  if (km2 > zona.AREA_MAX_KM2) {
+    mapaZona.marcar(false);
+    estadoTexto("#zona-estado", `La zona mide ${fmt(km2, 1)} km² y el máximo es ${zona.AREA_MAX_KM2} km². Dibuja un terreno más acotado.`, "err");
+    actualizarZona(); return;
+  }
+  const c = zona.centro(pts);
+  const cercana = dem.ESTACIONES.map((e) => ({ ...e, km: zona.distanciaKm(c, [e.lat, e.lon]) })).sort((a, b) => a.km - b.km)[0];
+  estado.zona = { pts, area, centro: c, elev: null, cercana };
+  $("#est-id").value = cercana.id;
+  $("#ub-lat").value = c[0].toFixed(3); $("#ub-lon").value = c[1].toFixed(3);
+  estadoTexto("#zona-estado", "Consultando la elevación del terreno…");
+  pintarZona(); actualizarZona();
+  try {
+    estado.zona.elev = await zona.elevacion(pts);
+    estadoTexto("#zona-estado", `Zona lista. Para usar su clima, elige en «Recurso» la serie prealmacenada (la más cercana es ${cercana.nombre}, a ${fmt(cercana.km)} km) o «ERA5 en tu zona».`, "ok");
+  } catch (err) {
+    estadoTexto("#zona-estado", `Zona lista, pero no se pudo obtener la elevación: ${err.message}`, "warn");
+  }
+  if (estado.zona?.pts === pts) pintarZona();
+}
+
+function pintarZona() {
+  const z = estado.zona; if (!z) return;
+  const e = z.elev;
+  $("#zona-kpis").replaceChildren(
+    kpi("Superficie", z.area >= 1e6 ? `${fmt(z.area / 1e6, 2)} km²` : `${fmt(z.area / 1e4, 1)} ha`, `${fmt(z.area)} m²`),
+    kpi("Elevación media", e ? `${fmt(e.media)} m s.n.m.` : "…", e ? `mín. ${fmt(e.min)} m · máx. ${fmt(e.max)} m (${e.n} puntos)` : "Copernicus DEM"),
+    kpi("Centro", `${fmt(-z.centro[0], 3)}° S`, `${fmt(-z.centro[1], 3)}° O`),
+    kpi("Serie más cercana", z.cercana.nombre.split(" (")[0], `a ${fmt(z.cercana.km)} km`));
+}
+
+function actualizarZona() {
+  if (estado.recurso === "estacion") cargarEstacion();
+  renderDistribucion(); cambiosGenerales();
+}
+
+// Cuántos aerogeneradores y paneles caben en la zona, y el terreno que ocupa cada uno.
+function distribucion() {
+  const z = estado.zona;
+  if (!z) return null;
+  const wt = estado.equipos.wt, pv = estado.equipos.pv;
+  const op = { D: wt.rotor, sx: Math.max(1, num("#lay-sx")), sy: Math.max(1, num("#lay-sy")), retiro: Math.max(0, num("#lay-retiro")) * (wt.hub + wt.rotor / 2), eje: num("#lay-eje") };
+  const clave = JSON.stringify([z.pts, op]);                     // la grilla se recalcula solo si cambia algo
+  if (cacheLayout.clave !== clave) Object.assign(cacheLayout, { clave, lay: zona.distribuirAerogeneradores(z.pts, op) });
+  const lay = cacheLayout.lay;
+  const paneles = zona.distribucionPaneles(z.centro[0], { areaPanelM2: pv.pr / (pv.eff / 100), aprovechamiento: Math.min(1, Math.max(0.1, num("#lay-aprov") / 100)) });
+  return {
+    ...lay, paneles,
+    nWt: lay.demasiadas ? Math.floor(z.area / lay.celdaM2) : lay.posiciones.length,
+    nPv: Math.floor(z.area / paneles.m2PorPanel),
+  };
+}
+function terreno() {
+  const d = $("#lay-usar").checked ? distribucion() : null;
+  return d ? { area: estado.zona.area, aWt: estado.arq.wt ? d.celdaM2 : 0, aPv: estado.arq.pv ? d.paneles.m2PorPanel : 0, nWt: d.nWt, nPv: d.nPv } : null;
+}
+
+function renderDistribucion() {
+  const d = distribucion();
+  $("#lay-sin-zona").hidden = !!d; $("#lay-contenido").hidden = !d;
+  if (!d) return;
+  const wt = estado.equipos.wt, pv = estado.equipos.pv, z = estado.zona;
+  const r = estado.resultado;
+  const usados = r && r.zona === z ? r.cfg[0] : 0;
+  if (!mapaLayout && typeof L !== "undefined" && !$("#panel-equipos").hidden) mapaLayout = zona.mapaDistribucion($("#mapa-layout"));
+  mapaLayout?.pintar(z.pts, d.posiciones, usados, wt.rotor / 2);
+  const p = d.paneles;
+  $("#lay-kpis").replaceChildren(
+    kpi("Aerogeneradores que caben", fmt(d.nWt), `${fmt(d.nWt * wt.pr)} kW · celda de ${fmt(d.celdaM2)} m² c/u${d.demasiadas ? " (estimado, demasiados para dibujar)" : ""}`),
+    kpi("Paneles que caben", fmt(d.nPv), `${fmt((d.nPv * pv.pr) / 1000, 2)} MW · ${fmt(p.m2PorPanel, 1)} m² por panel`),
+    kpi("Filas de paneles", `${fmt(p.beta)}° de inclinación`, `ocupación ${fmt(p.gcr * 100)} % (GCR); sol a ${fmt(p.alfa, 1)}° en junio`));
 }
 
 function renderDiagrama() {
@@ -417,7 +558,10 @@ function limitesAutomaticos() {
   let maxD = 0; for (const v of estado.demanda) if (v > maxD) maxD = v;
   const q = estado.equipos;
   const caso = { maxD: maxD * (1 + e.reserva), wtPr: q.wt.pr, pvPr: q.pv.pr, con: q.con, ele: q.ele, ht: q.ht, fc: q.fc, bat: q.bat, dg: q.dg };
-  return limitesPorDefecto(caso, estado.arq, esCasoTesis());
+  const lim = limitesPorDefecto(caso, estado.arq, esCasoTesis());
+  const t = terreno();
+  if (t) { lim[0][1] = Math.min(lim[0][1], t.nWt); lim[1][1] = Math.min(lim[1][1], t.nPv); }
+  return lim;
 }
 function renderLimites() {
   if (!estado.limitesEditados) estado.limites = limitesAutomaticos();
@@ -535,7 +679,9 @@ function haEnPool(p, limites, params, semilla, alProgresar) {
 
 async function armarCaso() {
   const s = await seriesUnidad();
-  return { demanda: Array.from(estado.demanda), wtKw: Array.from(s.wt), pvKw: Array.from(s.pv), equipos: clonar(estado.equipos), economia: leerEconomia() };
+  const t = terreno();
+  return { demanda: Array.from(estado.demanda), wtKw: Array.from(s.wt), pvKw: Array.from(s.pv), equipos: clonar(estado.equipos), economia: leerEconomia(),
+    terreno: t && { area: t.area, aWt: t.aWt, aPv: t.aPv } };
 }
 
 let ultimoGrafico = 0;
@@ -569,7 +715,7 @@ function mostrarProgreso(p, t0, evaluador, crit) {
 function bloquear(corriendo) {
   estado.corriendo = corriendo;
   $("#btn-detener").disabled = !corriendo;
-  $$("#paso-demanda input, #paso-demanda button, #paso-recurso input, #paso-recurso button, #paso-arquitectura input, #paso-criterios input, #paso-criterios select, #metodo, #opt-semilla, #opt-hilos, #btn-tesis, #preset-rapido, #preset-tesis, #limites-auto")
+  $$("#paso-demanda input, #paso-demanda button, #paso-recurso input, #paso-recurso button, #paso-recurso select, #paso-distribucion input, #paso-zona button, #paso-arquitectura input, #paso-criterios input, #paso-criterios select, #metodo, #opt-semilla, #opt-hilos, #btn-tesis, #preset-rapido, #preset-tesis, #limites-auto")
     .forEach((el) => { el.disabled = corriendo; });
   renderEquipos(); renderMetodo(); cambiosGenerales();
 }
@@ -601,7 +747,7 @@ async function optimizar() {
     await pool.init(caso, crit);
     const evaluador = crearEvaluador(pool);
     const comun = { limites, evaluar: evaluador.evaluar, semilla, alProgresar: (p) => mostrarProgreso(p, t0, evaluador, crit), detenido: () => detener };
-    const snap = { equipos: clonar(estado.equipos), arq: clonar(estado.arq), economia: leerEconomia() };
+    const snap = { equipos: clonar(estado.equipos), arq: clonar(estado.arq), economia: leerEconomia(), terreno: caso.terreno, zona: estado.zona };
     const meta = { metodo: metodo.nombre.replace(" · recomendado", ""), params, semilla, crit, snap, detenido: false };
     $("#pareto").hidden = true;
     if (metodo.mo) {
@@ -656,8 +802,9 @@ async function simularManual() {
   if (!estado.demanda || !recursoListo()) return;
   const cfg = $$("#manual input").map((i) => Math.max(0, Math.round(Number(i.value) || 0)));
   const crit = { ...leerCriterio(), modo: "uno", mo: [] };
-  const snap = { equipos: clonar(estado.equipos), arq: clonar(estado.arq), economia: leerEconomia() };
-  await simularCon(await armarCaso(), crit, cfg, { metodo: "Configuración ingresada a mano", crit, snap, manual: true });
+  const caso = await armarCaso();
+  const snap = { equipos: clonar(estado.equipos), arq: clonar(estado.arq), economia: leerEconomia(), terreno: caso.terreno, zona: estado.zona };
+  await simularCon(caso, crit, cfg, { metodo: "Configuración ingresada a mano", crit, snap, manual: true });
 }
 
 /* ---------- Frente de Pareto ---------- */
@@ -751,7 +898,7 @@ function mostrarResultados(cfg, r, meta, desplazarA = "#resultados") {
   $("#dl-csv").title = bloquearCSV ? "La demanda de la localidad remota es de terceros: sus series horarias no se descargan." : "";
   $("#dl-csv-nota").hidden = !bloquearCSV;
   estado.resultado = { cfg, r, meta, arq, equipos, economia, demandaNombre: estado.demandaNombre, demandaTipo: estado.demandaTipo,
-    recurso: estado.recurso === "tesis" ? "Serie de la tesis (la localidad remota 2018)" : estado.recurso === "era5" ? "ERA5, la localidad remota 2018" : estado.climaNombre };
+    recurso: nombreRecurso(), zona: meta.snap.zona };
   $("#resultados").hidden = false;
   const unaSolucion = meta.metodo.includes("solución ");
   $("#res-subtitulo").textContent = [meta.metodo, meta.segundos && !unaSolucion ? `${fmt(meta.segundos, 1)} s` : "",
@@ -778,6 +925,11 @@ function mostrarResultados(cfg, r, meta, desplazarA = "#resultados") {
       kpi("Costo del diésel", `${fmt(r.costoDieselAnual)} USD/año`, "combustible y mantención"),
       kpi("Emisiones", `${fmt(r.co2 / 1000, 1)} t CO₂/año`, `fracción renovable ${fmt(r.fraccionRenovable * 100, 1)} %`));
   }
+  const ter = meta.snap.terreno;
+  if (ter) {
+    const usado = cfg[0] * ter.aWt + cfg[1] * ter.aPv;
+    tarjetas.push(kpi("Terreno usado", `${fmt(usado / 1e4, 1)} ha`, `de ${fmt(ter.area / 1e4, 1)} ha (${fmt((usado / ter.area) * 100)} %)`, "", usado <= ter.area * 1.000001 ? ["Cabe", "ok"] : ["No cabe", "err"]));
+  }
   if (pen && meta.obj !== undefined) { const n = nombreObjetivo(crit); tarjetas.push(kpi(n[0].toUpperCase() + n.slice(1), valorObjetivo(crit, meta.obj), "valor que se minimizó")); }
   $("#kpis").replaceChildren(...tarjetas);
 
@@ -785,7 +937,7 @@ function mostrarResultados(cfg, r, meta, desplazarA = "#resultados") {
   aviso.hidden = cumple;
   if (!cumple) {
     aviso.textContent = meta.manual
-      ? `Esta configuración no cumple la confiabilidad pedida (${textoConfiabilidad(crit)}): tiene ${fmt(r.lole)} horas con déficit y una LPSP de ${fmt(r.lpsp * 100, 3)} %.`
+      ? `Esta configuración no cumple la confiabilidad pedida (${textoConfiabilidad(crit)}) o no cabe en la zona: tiene ${fmt(r.lole)} horas con déficit y una LPSP de ${fmt(r.lpsp * 100, 3)} %.`
       : `El método no encontró una configuración que cumpla la confiabilidad pedida (${textoConfiabilidad(crit)}). Se muestra la más cercana. Prueba con más generaciones, corridas o muestras, o amplía los límites de búsqueda.`;
   }
 
@@ -793,7 +945,7 @@ function mostrarResultados(cfg, r, meta, desplazarA = "#resultados") {
   if (esCasoTesis() && ref && lole && !crit.usarEnergia && crit.objetivo === "lcoe" && !pen && crit.modo !== "mo" && !cfg[6] && !cfg[7]) {
     const dif = ((r.lcoe - ref.lcoe) / ref.lcoe) * 100;
     box.hidden = false;
-    box.textContent = `Referencia del artículo para h = ${crit.h}: LCOE ${fmt(ref.lcoe, 3)} USD/kWh con el ${ref.metodo} (${ref.cfg.map((v) => fmt(v)).join(" · ")}). ` +
+    box.textContent = `Mejor resultado de referencia para este caso (h = ${crit.h}): LCOE ${fmt(ref.lcoe, 3)} USD/kWh con el ${ref.metodo} (${ref.cfg.map((v) => fmt(v)).join(" · ")}). ` +
       `Este resultado: ${fmt(r.lcoe, 4)} USD/kWh, ${Math.abs(dif) < 0.005 ? "igual" : dif < 0 ? `${fmt(-dif, 2)} % menor` : `${fmt(dif, 2)} % mayor`}.`;
   } else box.hidden = true;
 
@@ -846,6 +998,7 @@ function mostrarResultados(cfg, r, meta, desplazarA = "#resultados") {
     options: { responsive: true, maintainAspectRatio: false, animation: false,
       plugins: { legend: { position: "right", labels: { boxWidth: 12 } }, tooltip: { callbacks: { label: (c) => `${c.label}: ${musd(c.raw)} (${fmt((c.raw / r.npc) * 100, 1)} %)` } } } },
   });
+  renderDistribucion();
   if (desplazarA) $(desplazarA).scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -880,7 +1033,7 @@ function descargarJSON() {
   descargar(new Blob([JSON.stringify(salida, null, 2)], { type: "application/json" }), "hres-h2_resumen.json");
 }
 
-/* ---------- Caso de la tesis ---------- */
+/* ---------- Caso de ejemplo ---------- */
 
 async function cargarCasoTesis() {
   $('input[name="demanda"][value="ejemplo"]').checked = true;
@@ -892,10 +1045,21 @@ async function cargarCasoTesis() {
   $("#conf-tipo").value = "lole"; $("#conf-h").value = 0; $("#conf-energia").checked = false;
   $('input[name="modo"][value="uno"]').checked = true; $("#obj-unico").value = "lcoe";
   $("#pen-exc").value = 0; $("#pen-h2").value = 0;
+  $("#lay-usar").checked = false;          // el caso de ejemplo está en lat. 45°S, fuera de la región del mapa
   estado.limitesEditados = false;
   await cambiarRecurso();
   await cargarDemanda();
-  $("#paso-optimizacion").scrollIntoView({ behavior: "smooth", block: "start" });
+  abrirPestana("optimizacion");
+}
+
+/* ---------- Pestañas ---------- */
+
+function abrirPestana(nombre) {
+  $$('[role="tab"]').forEach((b) => { const si = b.dataset.tab === nombre; b.setAttribute("aria-selected", si); b.tabIndex = si ? 0 : -1; });
+  $$(".panel").forEach((p) => { p.hidden = p.id !== `panel-${nombre}`; });
+  if (nombre === "zona") mapaZona?.mapa.invalidateSize();
+  if (nombre === "equipos") { renderDistribucion(); mapaLayout?.mapa.invalidateSize(); renderDistribucion(); }
+  $(".tabs").scrollIntoView({ block: "start" });
 }
 
 /* ---------- Inicio ---------- */
@@ -942,7 +1106,22 @@ function iniciar() {
   $("#dl-csv").addEventListener("click", descargarCSV);
   $("#dl-json").addEventListener("click", descargarJSON);
 
+  for (const e of dem.ESTACIONES) { const o = document.createElement("option"); o.value = e.id; o.textContent = e.nombre; $("#est-id").appendChild(o); }
+  $("#est-id").addEventListener("change", cargarEstacion);
+  $("#rec-archivo").addEventListener("change", cargarRecursoCSV);
+  ["#lay-usar", "#lay-eje", "#lay-sx", "#lay-sy", "#lay-retiro", "#lay-aprov"].forEach((s) => $(s).addEventListener("change", () => { renderDistribucion(); cambiosGenerales(); }));
+  $$('[role="tab"]').forEach((b) => b.addEventListener("click", () => abrirPestana(b.dataset.tab)));
+  $(".tabs-in").addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+    const tabs = $$('[role="tab"]'), i = tabs.indexOf(document.activeElement);
+    if (i < 0) return;
+    const sig = tabs[(i + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
+    sig.focus(); abrirPestana(sig.dataset.tab);
+  });
+  $$("[data-ir]").forEach((b) => b.addEventListener("click", () => abrirPestana(b.dataset.ir)));
+
   renderEquipos(); renderCriterios();
+  iniciarZona();
   cambiarRecurso().then(cargarDemanda);
 }
 

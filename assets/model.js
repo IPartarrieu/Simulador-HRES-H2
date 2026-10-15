@@ -11,7 +11,7 @@
 /* ---------- Fuentes del catálogo ---------- */
 
 export const FUENTES = {
-  tesis: { texto: "Partarrieu (2026), tesis de Magíster en Geofísica, UdeC (Tablas 2.2.3 y 2.2.5)", url: "" },
+  tesis: { texto: "Caso de ejemplo del simulador (ver «Acerca del simulador»)", url: "" },
   diab2019: { texto: "Diab et al. (2019), IEEE Access 7", url: "https://doi.org/10.1109/ACCESS.2019.2936656" },
   kharrich2021: { texto: "Kharrich et al. (2021), IEEE Access 9", url: "https://doi.org/10.1109/ACCESS.2021.3051573" },
   energies2022: { texto: "Energies 15(10):3579 (2022)", url: "https://doi.org/10.3390/en15103579" },
@@ -27,19 +27,19 @@ export const FUENTES = {
 // Cada equipo indica su fuente. Los costos que no vienen de un artículo son referenciales y editables.
 export const CATALOGO = {
   wt: [
-    { id: "gaia133", nombre: "Gaia-Wind 133 · 11 kW (tesis)", pr: 11, vcin: 3.5, vr: 9.5, vcout: 25, hub: 18,
+    { id: "gaia133", nombre: "Gaia-Wind 133 · 11 kW (caso de ejemplo)", pr: 11, vcin: 3.5, vr: 9.5, vcout: 25, hub: 18, rotor: 13,
       ci: 80000, rep: 66000, om: 1600, vu: 20, fuente: "tesis" },
-    { id: "eolica2", nombre: "Eolica · 2 kW (Energies 2022)", pr: 2, vcin: 2, vr: 9, vcout: 20, hub: 20,
+    { id: "eolica2", nombre: "Eolica · 2 kW (Energies 2022)", pr: 2, vcin: 2, vr: 9, vcout: 20, hub: 20, rotor: 3.2,
       ci: 4000, rep: 4000, om: 80, vu: 24, fuente: "energies2022" },
-    { id: "bergey10", nombre: "Bergey Excel 10 · 10 kW", pr: 10, vcin: 3.4, vr: 11, vcout: 20, hub: 24,
+    { id: "bergey10", nombre: "Bergey Excel 10 · 10 kW", pr: 10, vcin: 3.4, vr: 11, vcout: 20, hub: 24, rotor: 7,
       ci: 65000, rep: 50000, om: 1300, vu: 20, fuente: "ficha" },
-    { id: "eocycle22", nombre: "Eocycle EOX S-16 · 22 kW", pr: 22, vcin: 2.75, vr: 11, vcout: 25, hub: 24,
+    { id: "eocycle22", nombre: "Eocycle EOX S-16 · 22 kW", pr: 22, vcin: 2.75, vr: 11, vcout: 25, hub: 24, rotor: 16,
       ci: 150000, rep: 120000, om: 3000, vu: 20, fuente: "ficha" },
-    { id: "nps100", nombre: "Northern Power NPS 100C-24 · 95 kW", pr: 95, vcin: 3, vr: 12, vcout: 25, hub: 37,
+    { id: "nps100", nombre: "Northern Power NPS 100C-24 · 95 kW", pr: 95, vcin: 3, vr: 12, vcout: 25, hub: 37, rotor: 24.4,
       ci: 450000, rep: 380000, om: 9000, vu: 20, fuente: "ficha" },
   ],
   pv: [
-    { id: "cs6u330", nombre: "Canadian Solar CS6U-330P · 330 W (tesis)", pr: 0.33, eff: 16.97, alfa: -0.41, noct: 45, fpv: 0.8,
+    { id: "cs6u330", nombre: "Canadian Solar CS6U-330P · 330 W (caso de ejemplo)", pr: 0.33, eff: 16.97, alfa: -0.41, noct: 45, fpv: 0.8,
       ci: 206.67, rep: 206.67, om: 0, vu: 25, fuente: "tesis" },
     { id: "spr327", nombre: "SunPower SPR-E20-327 · 327 W (Processes 2020)", pr: 0.327, eff: 20.4, alfa: -0.35, noct: 45, fpv: 0.8,
       ci: 1046.4, rep: 1046.4, om: 6.54, vu: 25, fuente: "processes2020" },
@@ -51,20 +51,20 @@ export const CATALOGO = {
       ci: 253.6, rep: 253.6, om: 0, vu: 30, fuente: "ficha" },
   ],
   con: [
-    { id: "conv1", nombre: "Conversor genérico · 1 kW, 95 % (tesis)", pr: 1, eta: 0.95, ci: 300, rep: 300, om: 0, vu: 15, fuente: "tesis" },
+    { id: "conv1", nombre: "Conversor genérico · 1 kW, 95 % (caso de ejemplo)", pr: 1, eta: 0.95, ci: 300, rep: 300, om: 0, vu: 15, fuente: "tesis" },
     { id: "conv5", nombre: "Inversor bidireccional · 5 kW, 97 %", pr: 5, eta: 0.97, ci: 1750, rep: 1750, om: 0, vu: 15, fuente: "ref" },
   ],
   ele: [
-    { id: "pem3", nombre: "PEM · 3 kW, 74 % (tesis, Zhang et al.)", pr: 3, eta: 0.74, ci: 4500, rep: 700, om: 0, vu: 5, fuente: "tesis" },
+    { id: "pem3", nombre: "PEM · 3 kW, 74 % (Zhang et al.)", pr: 3, eta: 0.74, ci: 4500, rep: 700, om: 0, vu: 5, fuente: "tesis" },
     { id: "ael5", nombre: "Alcalino (AEL) · 5 kW, 68 % (Yue et al. 2021)", pr: 5, eta: 0.68, ci: 5000, rep: 1750, om: 50, vu: 10, fuente: "yue2021" },
     { id: "pem5", nombre: "PEM actual · 5 kW, 60 % (Yue et al. 2021)", pr: 5, eta: 0.60, ci: 7000, rep: 2100, om: 70, vu: 10, fuente: "yue2021" },
   ],
   ht: [
-    { id: "tank03", nombre: "Tanque de H₂ · 0,3 kWh (tesis, Zhang et al.)", cap: 0.3, ci: 600, rep: 0, om: 5, vu: 20, fuente: "tesis" },
+    { id: "tank03", nombre: "Tanque de H₂ · 0,3 kWh (Zhang et al.)", cap: 0.3, ci: 600, rep: 0, om: 5, vu: 20, fuente: "tesis" },
     { id: "tank1", nombre: "Tanque de H₂ tipo IV · 1 kWh", cap: 1, ci: 1500, rep: 0, om: 10, vu: 20, fuente: "ref" },
   ],
   fc: [
-    { id: "pemfc3", nombre: "Celda PEM · 3 kW, 50 % (tesis, Zhang et al.)", pr: 3, eta: 0.50, ci: 600, rep: 700, om: 0, vu: 5, fuente: "tesis" },
+    { id: "pemfc3", nombre: "Celda PEM · 3 kW, 50 % (Zhang et al.)", pr: 3, eta: 0.50, ci: 600, rep: 700, om: 0, vu: 5, fuente: "tesis" },
     { id: "pemfc5", nombre: "Celda estacionaria gran escala · 5 kW, 55 % (Yue et al. 2021)", pr: 5, eta: 0.55, ci: 7500, rep: 3000, om: 50, vu: 10, fuente: "yue2021" },
     { id: "sofc5", nombre: "Celda de óxido sólido (SOFC) · 5 kW, 60 %", pr: 5, eta: 0.60, ci: 15000, rep: 5000, om: 150, vu: 6, fuente: "ref" },
   ],
@@ -157,7 +157,7 @@ export function npcUnidad(dev, df, anios) {
 
 // Arma todo lo que necesita la simulación: series por unidad, capacidades y costos por unidad.
 // `demanda`: kW horarios; `wtKw`, `pvKw`: potencia de UNA unidad en cada hora.
-export function prepararCaso({ demanda, wtKw, pvKw, equipos, economia }) {
+export function prepararCaso({ demanda, wtKw, pvKw, equipos, economia, terreno = null }) {
   const eq = { bat: CATALOGO.bat[0], dg: CATALOGO.dg[0], ...equipos };
   const eco = { ...ECONOMIA_TESIS, ...economia };
   const n = demanda.length;
@@ -183,7 +183,7 @@ export function prepararCaso({ demanda, wtKw, pvKw, equipos, economia }) {
     fc: { pr: eq.fc.pr, eta: eq.fc.eta },
     bat: { ...eq.bat }, dg: { ...eq.dg },
     crf: coef, df, sumaDF, anios: eco.anios, precioDiesel: eco.diesel,
-    npcU, ciU: MODULOS.map((k) => eq[k].ci),
+    npcU, ciU: MODULOS.map((k) => eq[k].ci), terreno,
   };
 }
 
@@ -330,11 +330,22 @@ export function simular(caso, cfg, completo = false) {
 
 // Confiabilidad: LOLE ≤ h (horas con déficit) o LPSP ≤ límite, y opcionalmente ENS ≤ h · demanda media
 // (ec. 2.2.18 y 2.2.19). Devuelve 0 si se cumple; si no, cuánto falta (para las reglas de factibilidad).
-export function violacion(res, crit, caso) {
-  if (crit.tipo === "lpsp") return Math.max(0, res.lpsp - crit.lpspMax) * 100;
-  let v = Math.max(0, res.lole - crit.h);
-  if (crit.usarEnergia) v += Math.max(0, res.ens - crit.h * caso.mediaD) / Math.max(caso.mediaD, 1e-9);
-  return v;
+export function violacion(res, crit, caso, cfg) {
+  let v = 0;
+  if (crit.tipo === "lpsp") v = Math.max(0, res.lpsp - crit.lpspMax) * 100;
+  else {
+    v = Math.max(0, res.lole - crit.h);
+    if (crit.usarEnergia) v += Math.max(0, res.ens - crit.h * caso.mediaD) / Math.max(caso.mediaD, 1e-9);
+  }
+  return v + excesoTerreno(caso, cfg);
+}
+
+// Zona del proyecto: los aerogeneradores (cada uno con su celda de separación) y los paneles (con el
+// espacio entre filas) no pueden ocupar más que la superficie disponible. Sin zona no se aplica.
+export function excesoTerreno(caso, cfg) {
+  const t = caso.terreno;
+  if (!t || !cfg) return 0;
+  return Math.max(0, (cfg[0] * t.aWt + cfg[1] * t.aPv - t.area) / t.area) * 100;
 }
 
 // Penalizaciones en USD por año: excedentes perdidos (USD/kWh) e hidrógeno que nunca se usó en el año (USD/kWh).
@@ -367,7 +378,7 @@ export const OBJETIVOS_MO = {
 export function evaluacion(caso, cfg, crit) {
   const r = simular(caso, cfg);
   const e = { cfg: cfg.slice(), lcoe: r.lcoe, lole: r.lole, ens: r.ens, lpsp: r.lpsp, npc: r.npc, capex: r.capex,
-    perdida: r.perdida, h2Min: r.h2Min, co2: r.co2, viol: violacion(r, crit, caso), obj: objetivo(r, crit, caso) };
+    perdida: r.perdida, h2Min: r.h2Min, co2: r.co2, viol: violacion(r, crit, caso, cfg), obj: objetivo(r, crit, caso) };
   if (crit.mo && crit.mo.length) e.objs = crit.mo.map((k) => OBJETIVOS_MO[k].valor(r));
   return e;
 }

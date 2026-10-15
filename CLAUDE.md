@@ -1,6 +1,6 @@
 # Simulador HRES-H2
 
-Página interactiva que da vida a la tesis de magíster de Ignacio Partarrieu (UdeC, 2026): dimensionamiento óptimo de un sistema híbrido PV-WT con almacenamiento en hidrógeno (HESS) para una localidad remota. Sitio estático (HTML, CSS y JavaScript con módulos ES, sin compilación). El detalle para usuarios está en `README.md`.
+Página interactiva que da vida a la tesis de magíster de Ignacio Partarrieu (UdeC, 2026): dimensionamiento óptimo de un sistema híbrido PV-WT con almacenamiento en hidrógeno (HESS) para una localidad remota del sur de Chile. Sitio estático (HTML, CSS y JavaScript con módulos ES, sin compilación). El detalle para usuarios está en `README.md`.
 
 Plan: primero se publica en el GitHub personal (cuenta `IPartarrieu`); después se pasará al formato visual de MetGeo (skill `metgeo-marca`). Por eso los colores viven en variables en `assets/style.css` y el diagrama usa colores propios en `assets/diagram.js`.
 
@@ -20,11 +20,19 @@ Plan: primero se publica en el GitHub personal (cuenta `IPartarrieu`); después 
 - **Equipos del catálogo:** cada uno tiene `fuente` (clave de `FUENTES` en `model.js`, con DOI si es un artículo) y la página la muestra. Los marcados «tesis» usan los valores del artículo (Tablas 2.2.3 y 2.2.5). Solo citar un artículo si sus datos se leyeron en el texto completo (skill `articulos-cientificos`); los costos que no vienen de la fuente se marcan como referenciales.
 - **Español neutro, forma «tú»,** sin modismos.
 
+## Zona y distribución
+
+- `assets/zona.js`: mapa Leaflet (`vendor/leaflet`), región de prueba como rectángulo (`REGION`), área máxima `AREA_MAX_KM2`, elevación con `api.open-meteo.com/v1/elevation`. `distribuirAerogeneradores` arma la grilla (sx·D × sy·D, filas perpendiculares a `eje`); `distribucionPaneles` da el m² por panel según el GCR sin sombras en junio.
+- La restricción de terreno entra al modelo como `caso.terreno = { area, aWt, aPv }` y suma a `violacion` (`excesoTerreno`). Sin zona es `null` y el motor queda igual al de la tesis.
+- La CSP permite además las teselas de OpenStreetMap, OpenTopoMap y Esri, y `api.open-meteo.com`.
+
 ## Datos (`data/`)
 
-- `ejemplo_45s_2018.json`: `demanda_codificada` (ver arriba) y `tesis.wt_kw`, `tesis.pv_kw` con la precisión completa de `input_data.txt` (redondearlos cambia los resultados); `era5` con temperatura, presión, viento a 10 y 100 m y radiación en plano inclinado 45° hacia el norte, de Open-Meteo (hora de Chile, 2018).
+- `ejemplo_45s_2018.json`: `demanda_codificada` (ver arriba) y `tesis.wt_kw`, `tesis.pv_kw` con la precisión completa de `input_data.txt` (redondearlos cambia los resultados); `era5` con temperatura, presión, viento a 10 y 100 m y radiación en plano inclinado 45° hacia el norte, de Open-Meteo (hora de Chile, 2018), con `eje_viento` y `concentracion_viento`.
+- `clima/<id>.json`: ERA5 2023 de los 10 puntos de `ESTACIONES` (`assets/demand.js`), con `eje_viento` (grados, energía v³ a 100 m).
 - `resstock_maine_2018.json`: kWh por vivienda y hora (NREL ResStock AMY2018, viviendas unifamiliares de Maine, hora EST).
-- **La demanda de la localidad remota es de terceros** (base de datos de terceros). Ignacio autorizó publicarla en el simulador, pero **no que se pueda descargar**: va codificada en `demanda_codificada` (`assets/codec.js`, conserva los float64 exactos) y la página bloquea la descarga del CSV horario con esa demanda y con la sintética (que con poca variabilidad reproduce casi los mismos valores). No agregar ninguna vía de descarga de esa serie ni guardarla en texto plano en el repositorio. No es un cifrado real: si se necesitara protección fuerte, habría que simular en un servidor.
+- **El nombre de la localidad es confidencial**: en la página y el repositorio se llama «Localidad remota - 840 habitantes» y «Series de ejemplo lat. 45°S»; no escribir su nombre ni sus coordenadas exactas. La tesis solo se menciona en la sección «Acerca del simulador».
+- **La demanda de ejemplo es de terceros**. Ignacio autorizó publicarla en el simulador, pero **no que se pueda descargar**: va codificada en `demanda_codificada` (`assets/codec.js`, conserva los float64 exactos) y la página bloquea la descarga del CSV horario con esa demanda y con la sintética (que con poca variabilidad reproduce casi los mismos valores). No agregar ninguna vía de descarga de esa serie ni guardarla en texto plano en el repositorio. No es un cifrado real: si se necesitara protección fuerte, habría que simular en un servidor.
 
 ## Probar
 

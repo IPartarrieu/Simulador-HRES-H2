@@ -33,7 +33,7 @@ self.onmessage = (ev) => {
     } else if (m.tipo === "completo") {
       const r = simular(caso, m.cfg, true);
       const buffers = Object.values(r.series).map((a) => a.buffer);
-      self.postMessage({ id: m.id, res: { ...r, viol: violacion(r, crit, caso), mediaD: caso.mediaD, npcU: caso.npcU, crf: caso.crf, sumaDF: caso.sumaDF } }, buffers);
+      self.postMessage({ id: m.id, res: { ...r, viol: violacion(r, crit, caso, m.cfg), mediaD: caso.mediaD, npcU: caso.npcU, crf: caso.crf, sumaDF: caso.sumaDF } }, buffers);
     }
   } catch (err) {
     self.postMessage({ id: m.id, error: String((err && err.message) || err) });

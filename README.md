@@ -2,12 +2,13 @@
 
 Página interactiva para dimensionar un **sistema híbrido de energías renovables (HRES)** con **almacenamiento de energía en forma de hidrógeno (HESS)**: aerogeneradores y paneles fotovoltaicos, conversores DC/AC, electrolizadores, tanques de hidrógeno y celdas de combustible, más **baterías** y **generadores diésel** opcionales.
 
-Da vida a la tesis de Magíster en Geofísica de Ignacio Partarrieu Andrade, *Dimensionamiento óptimo de un sistema híbrido de energías renovables con un sistema de almacenamiento de energía en forma de hidrógeno* (Universidad de Concepción, 2026), aplicada a una localidad remota (lat. 45°S).
+Da vida a la tesis de Magíster en Geofísica de Ignacio Partarrieu Andrade, *Dimensionamiento óptimo de un sistema híbrido de energías renovables con un sistema de almacenamiento de energía en forma de hidrógeno* (Universidad de Concepción, 2026). El caso de ejemplo es una localidad remota de 840 habitantes a lat. 45°S; las zonas nuevas se eligen en un mapa del centro-sur de Chile (Maule a la Araucanía).
 
 ## Qué hace
 
-1. **Demanda**: la serie horaria de la localidad remota (2018), un perfil público de viviendas (NREL ResStock, Maine 2018) escalado a una comunidad, una serie sintética generada a partir de la localidad remota o un archivo propio de 8760 valores horarios.
-2. **Recurso**: la serie de la tesis (potencia medida in situ para el Gaia-Wind 11 kW y el panel CS6U-330P), el clima ERA5 de la localidad remota 2018 o el clima ERA5 de cualquier punto y año, descargado desde Open-Meteo.
+0. **Zona**: un polígono dibujado en el mapa (máximo 25 km²) con su superficie y su elevación (Copernicus DEM). En la pestaña Equipos se calcula cuántos aerogeneradores caben en una grilla orientada al eje dominante del viento (separación en diámetros de rotor y retiro desde el borde) y cuántos paneles, con filas sin sombra en el solsticio de invierno; el optimizador respeta la superficie (aerogeneradores + paneles ≤ zona).
+1. **Demanda**: la serie horaria de la localidad remota de ejemplo (840 habitantes, 2018), un perfil público de viviendas (NREL ResStock, Maine 2018) escalado a una comunidad, una serie sintética generada a partir de la localidad remota o un archivo propio de 8760 valores horarios.
+2. **Recurso**: las series de ejemplo lat. 45°S (potencia medida in situ para el Gaia-Wind 11 kW y el panel CS6U-330P), el clima ERA5 de ejemplo (2018), series ERA5 2023 prealmacenadas de 10 puntos del centro-sur (`data/clima/`), ERA5 descargado para el centro de la zona o series propias (temperatura, viento y radiación).
 3. **Arquitectura**: con o sin aerogeneradores, paneles, almacenamiento en hidrógeno, baterías (bus DC) y generadores diésel (bus AC). El diagrama del sistema se puede descargar en SVG o PNG.
 4. **Equipos**: un catálogo con los equipos de la tesis y alternativas de la literatura científica y de fichas técnicas (aerogeneradores, paneles, electrolizadores alcalinos o PEM, celdas PEM o SOFC, baterías LFP, NMC y plomo-ácido, generadores diésel), cada uno con su fuente y con todos sus parámetros editables.
 5. **Optimización**:
@@ -96,14 +97,16 @@ python3 -m http.server 8000     # y abrir http://localhost:8000
 | `assets/demand.js` | Fuentes de demanda y descarga del clima desde Open-Meteo |
 | `assets/diagram.js` | Diagrama SVG del sistema y descargas |
 | `assets/app.js` | Interfaz |
-| `data/ejemplo_45s_2018.json` | Demanda de la localidad remota, serie de la tesis y clima ERA5 de 2018 |
+| `data/ejemplo_45s_2018.json` | Demanda de la localidad remota de ejemplo, series de ejemplo y clima ERA5 de 2018 |
+| `data/clima/*.json` | ERA5 2023 de 10 puntos del Maule a la Araucanía, con el eje dominante del viento |
+| `assets/zona.js` | Mapa, polígono, superficie, elevación y distribución de aerogeneradores y paneles |
 | `data/resstock_maine_2018.json` | Consumo horario promedio por vivienda (NREL ResStock) |
 | `vendor/chart.umd.min.js` | Chart.js 4.4.1 (MIT) |
 | `tests/` | Validación contra Python, comparación de métodos y prueba del frente de Pareto |
 
 ## Datos y créditos
 
-- Demanda de la localidad remota (2018): base de datos de terceros, usada en la tesis. Se incluye codificada (`demanda_codificada` en `data/ejemplo_45s_2018.json`, ver `assets/codec.js`) y **solo para usarla dentro del simulador: no se autoriza su descarga ni redistribución**. La página no permite descargar las series horarias cuando se usa esta demanda o la sintética basada en ella.
+- Demanda de la localidad remota de ejemplo (2018): datos de terceros, usados en la tesis. Se incluye codificada (`demanda_codificada` en `data/ejemplo_45s_2018.json`, ver `assets/codec.js`) y **solo para usarla dentro del simulador: no se autoriza su descarga ni redistribución**. La página no permite descargar las series horarias cuando se usa esta demanda o la sintética basada en ella.
 - Clima: reanálisis ERA5 (Copernicus Climate Change Service, ECMWF), obtenido vía [Open-Meteo](https://open-meteo.com/), licencia CC BY 4.0.
 - Perfiles residenciales: NREL, *End-Use Load Profiles for the U.S. Building Stock*, ResStock AMY2018 (CC BY 4.0).
 - Parámetros del sistema de hidrógeno: Zhang et al., citados en la tesis.

@@ -3,36 +3,75 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://archive-api.open-meteo.com; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://tile.openstreetmap.org https://a.tile.opentopomap.org https://b.tile.opentopomap.org https://c.tile.opentopomap.org https://server.arcgisonline.com; connect-src 'self' https://archive-api.open-meteo.com https://api.open-meteo.com; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>Simulador HRES-H2 · dimensionamiento de sistemas híbridos con hidrógeno</title>
-<meta name="description" content="Simulador y optimizador del dimensionamiento de un sistema híbrido de energías renovables (eólica y solar) con almacenamiento de energía en forma de hidrógeno. Basado en la tesis de magíster de Ignacio Partarrieu (UdeC, 2026).">
+<meta name="description" content="Simulador y optimizador del dimensionamiento de un sistema híbrido de energías renovables (eólica y solar) con almacenamiento de energía en forma de hidrógeno, para zonas del centro-sur de Chile.">
 <link rel="icon" href="assets/icono.svg" type="image/svg+xml">
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="assets/style.css">
 <script src="vendor/chart.umd.min.js" defer></script>
+<script src="vendor/leaflet/leaflet.js" defer></script>
 <script type="module" src="assets/app.js"></script>
 </head>
 <body>
 <header class="top">
   <div class="wrap top-in">
     <div>
-      <p class="eyebrow">Tesis de Magíster en Geofísica · Universidad de Concepción</p>
+      <p class="eyebrow">Sistemas híbridos con hidrógeno · centro-sur de Chile</p>
       <h1>Simulador HRES-H2</h1>
-      <p class="lead">Dimensiona un sistema híbrido de energías renovables con almacenamiento en hidrógeno: elige la demanda, los equipos y el método de optimización, y obtén cuántos aerogeneradores, paneles, conversores, electrolizadores, tanques, celdas de combustible, baterías y generadores diésel necesitas al menor costo, o el frente de Pareto entre costo y confiabilidad.</p>
+      <p class="lead">Dimensiona un sistema híbrido de energías renovables con almacenamiento en hidrógeno: elige la zona, la demanda, el recurso, los equipos y el método de optimización, y obtén cuántos aerogeneradores, paneles, conversores, electrolizadores, tanques, celdas de combustible, baterías y generadores diésel necesitas al menor costo, o el frente de Pareto entre costo y confiabilidad.</p>
     </div>
     <div class="top-actions">
-      <button class="btn btn-primary" type="button" id="btn-tesis">Cargar el caso de la tesis</button>
-      <a class="btn btn-ghost" href="#metodo">¿Cómo funciona?</a>
+      <button class="btn btn-primary" type="button" id="btn-tesis">Cargar el caso de ejemplo</button>
+      <button class="btn btn-ghost" type="button" data-ir="acerca">Acerca del simulador</button>
     </div>
   </div>
 </header>
 
+<nav class="tabs" aria-label="Pasos del simulador">
+  <div class="wrap tabs-in" role="tablist">
+    <button type="button" role="tab" data-tab="zona" aria-selected="true"><span class="n">1</span>Zona</button>
+    <button type="button" role="tab" data-tab="demanda"><span class="n">2</span>Demanda</button>
+    <button type="button" role="tab" data-tab="recurso"><span class="n">3</span>Recurso</button>
+    <button type="button" role="tab" data-tab="arquitectura"><span class="n">4</span>Arquitectura</button>
+    <button type="button" role="tab" data-tab="equipos"><span class="n">5</span>Equipos</button>
+    <button type="button" role="tab" data-tab="criterios"><span class="n">6</span>Economía y confiabilidad</button>
+    <button type="button" role="tab" data-tab="optimizacion"><span class="n">7</span>Optimización</button>
+    <button type="button" role="tab" data-tab="acerca"><span class="n">?</span>Acerca</button>
+  </div>
+</nav>
+
 <main class="wrap">
-  <!-- 1. Demanda -->
+  <!-- 1. Zona -->
+  <div class="panel" id="panel-zona" role="tabpanel">
+  <section class="card" id="paso-zona">
+    <div class="card-head"><span class="num">1</span><div><h2>Zona del proyecto</h2><p class="muted">Dibuja en el mapa el terreno donde se instalaría el sistema, entre las regiones del Maule y la Araucanía. Superficie máxima: 25 km².</p></div></div>
+    <div class="grid-2 zona">
+      <div class="mapa" id="mapa" aria-label="Mapa del centro-sur de Chile"></div>
+      <div>
+        <div class="btns sin-margen">
+          <button class="btn btn-primary btn-small" type="button" id="zona-dibujar">Dibujar zona</button>
+          <button class="btn btn-small" type="button" id="zona-cerrar" disabled>Cerrar polígono</button>
+          <button class="btn btn-small" type="button" id="zona-deshacer" disabled>Deshacer punto</button>
+          <button class="btn btn-small" type="button" id="zona-borrar">Borrar</button>
+        </div>
+        <p class="fine">Haz clic en el mapa para marcar cada vértice. Termina con un clic en el primer punto, con doble clic o con «Cerrar polígono». Puedes cambiar a relieve, calles o satélite con el botón de capas.</p>
+        <p class="status" id="zona-estado">Aún no hay una zona dibujada.</p>
+        <div class="kpis compactos" id="zona-kpis"></div>
+        <p class="fine">La zona define cuánto terreno hay para el sistema. En la pestaña <b>Equipos</b> se calcula cuántos aerogeneradores y paneles caben y cómo se distribuyen, una vez conocidos el viento y los equipos elegidos.</p>
+      </div>
+    </div>
+    <div class="nav-pasos"><span></span><button class="btn btn-primary" type="button" data-ir="demanda">Siguiente: demanda →</button></div>
+  </section>
+  </div>
+
+  <!-- 2. Demanda -->
+  <div class="panel" id="panel-demanda" role="tabpanel" hidden>
   <section class="card" id="paso-demanda">
-    <div class="card-head"><span class="num">1</span><div><h2>Demanda eléctrica</h2><p class="muted">Serie horaria de un año completo (8760 horas, de enero a diciembre), en kW.</p></div></div>
+    <div class="card-head"><span class="num">2</span><div><h2>Demanda eléctrica</h2><p class="muted">Serie horaria de un año completo (8760 horas, de enero a diciembre), en kW.</p></div></div>
     <div class="options" role="radiogroup" aria-label="Fuente de la demanda">
-      <label class="option"><input type="radio" name="demanda" value="ejemplo" checked><span><b>Localidad remota, 2018</b><small>La demanda de la tesis (lat. 45°S). Media de 112 kW.</small></span></label>
+      <label class="option"><input type="radio" name="demanda" value="ejemplo" checked><span><b>Localidad remota - 840 habitantes</b><small>Demanda medida durante 2018 en una localidad aislada del sur de Chile. Media de 112 kW.</small></span></label>
       <label class="option"><input type="radio" name="demanda" value="resstock"><span><b>Perfil público de viviendas</b><small>NREL ResStock, Maine 2018 (clima frío costero), escalado a una comunidad.</small></span></label>
       <label class="option"><input type="radio" name="demanda" value="sintetica"><span><b>Sintética a partir de la localidad remota</b><small>Mantiene la estacionalidad y el ciclo diario, con variaciones aleatorias.</small></span></label>
       <label class="option"><input type="radio" name="demanda" value="csv"><span><b>Mis datos</b><small>Archivo CSV o de texto con 8760 valores horarios en kW.</small></span></label>
@@ -53,28 +92,44 @@
     </div>
     <p class="status" id="demanda-estado"></p>
     <div class="chart-box short"><canvas id="graf-demanda" aria-label="Demanda media diaria"></canvas></div>
+    <div class="nav-pasos"><button class="btn" type="button" data-ir="zona">← zona</button><button class="btn btn-primary" type="button" data-ir="recurso">Siguiente: recurso →</button></div>
   </section>
+  </div>
 
-  <!-- 2. Recurso -->
+  <!-- 3. Recurso -->
+  <div class="panel" id="panel-recurso" role="tabpanel" hidden>
   <section class="card" id="paso-recurso">
-    <div class="card-head"><span class="num">2</span><div><h2>Recurso eólico y solar</h2><p class="muted">Con qué datos se calcula la producción de cada aerogenerador y panel.</p></div></div>
+    <div class="card-head"><span class="num">3</span><div><h2>Recurso eólico y solar</h2><p class="muted">Con qué datos se calcula la producción de cada aerogenerador y panel.</p></div></div>
     <div class="options" role="radiogroup" aria-label="Fuente del recurso">
-      <label class="option"><input type="radio" name="recurso" value="tesis" checked><span><b>Serie de la tesis</b><small>Potencia medida in situ en la localidad remota para el Gaia-Wind 11 kW y el panel CS6U-330P. Reproduce los resultados del artículo.</small></span></label>
-      <label class="option"><input type="radio" name="recurso" value="era5"><span><b>Clima de la localidad remota (ERA5)</b><small>Viento, radiación y temperatura de 2018. Permite comparar marcas de equipos.</small></span></label>
-      <label class="option"><input type="radio" name="recurso" value="ubicacion"><span><b>Otra ubicación (ERA5)</b><small>Descarga el clima horario de cualquier punto y año desde Open-Meteo.</small></span></label>
+      <label class="option"><input type="radio" name="recurso" value="tesis" checked><span><b>Series de ejemplo lat. 45°S</b><small>Potencia horaria medida en terreno (2018) para el aerogenerador Gaia-Wind 11 kW y el panel CS6U-330P. Corresponde al caso de ejemplo.</small></span></label>
+      <label class="option"><input type="radio" name="recurso" value="era5"><span><b>Clima de ejemplo lat. 45°S (ERA5)</b><small>Viento, radiación y temperatura de 2018 en el mismo lugar. Permite comparar marcas de equipos.</small></span></label>
+      <label class="option"><input type="radio" name="recurso" value="estacion"><span><b>Serie prealmacenada del centro-sur</b><small>ERA5 2023 de 10 puntos entre el Maule y la Araucanía. Se propone el más cercano a tu zona.</small></span></label>
+      <label class="option"><input type="radio" name="recurso" value="ubicacion"><span><b>ERA5 en tu zona</b><small>Descarga el clima horario del centro de la zona (o de otro punto de la región) desde Open-Meteo.</small></span></label>
+      <label class="option"><input type="radio" name="recurso" value="csv"><span><b>Mis series</b><small>Archivo con temperatura, viento y radiación horarios medidos por ti.</small></span></label>
+    </div>
+    <div class="subopts" data-para="estacion" hidden>
+      <label>Punto <select id="est-id"></select></label>
     </div>
     <div class="subopts" data-para="ubicacion" hidden>
-      <label>Latitud <input type="number" id="ub-lat" min="-90" max="90" step="0.01" value="-36.83"></label>
-      <label>Longitud <input type="number" id="ub-lon" min="-180" max="180" step="0.01" value="-73.05"></label>
+      <label>Latitud <input type="number" id="ub-lat" min="-39.7" max="-34.6" step="0.01" value="-36.83"></label>
+      <label>Longitud <input type="number" id="ub-lon" min="-74" max="-70.3" step="0.01" value="-73.05"></label>
       <label>Año <input type="number" id="ub-anio" min="1950" max="2025" value="2023"></label>
       <button class="btn btn-small" type="button" id="ub-cargar">Descargar el clima</button>
+      <p class="fine">Al dibujar una zona se usa su centro. El punto debe estar dentro de la región de prueba (latitud −39,7 a −34,6; longitud −74 a −70,3).</p>
+    </div>
+    <div class="subopts" data-para="csv" hidden>
+      <label>Archivo <input type="file" id="rec-archivo" accept=".csv,.txt,text/csv,text/plain"></label>
+      <p class="fine">8760 filas (una por hora, de enero a diciembre) con las columnas: temperatura (°C), viento a 10 m (m/s), radiación sobre el plano del panel (W/m²) y, si las tienes, viento a 100 m (m/s) y presión (hPa). Separador: coma, punto y coma o tabulador; las filas de encabezado se ignoran. Sin viento a 100 m se usa un perfil 1/7; sin presión, la de la atmósfera estándar a la elevación media de tu zona.</p>
     </div>
     <p class="status" id="recurso-estado"></p>
+    <div class="nav-pasos"><button class="btn" type="button" data-ir="demanda">← demanda</button><button class="btn btn-primary" type="button" data-ir="arquitectura">Siguiente: arquitectura →</button></div>
   </section>
+  </div>
 
-  <!-- 3. Arquitectura -->
+  <!-- 4. Arquitectura -->
+  <div class="panel" id="panel-arquitectura" role="tabpanel" hidden>
   <section class="card" id="paso-arquitectura">
-    <div class="card-head"><span class="num">3</span><div><h2>Arquitectura del sistema</h2><p class="muted">Elige qué módulos incluir. El diagrama se actualiza y puedes descargarlo.</p></div></div>
+    <div class="card-head"><span class="num">4</span><div><h2>Arquitectura del sistema</h2><p class="muted">Elige qué módulos incluir. El diagrama se actualiza y puedes descargarlo.</p></div></div>
     <div class="grid-2">
       <div>
         <div class="toggles">
@@ -95,18 +150,52 @@
         </div>
       </div>
     </div>
+    <div class="nav-pasos"><button class="btn" type="button" data-ir="recurso">← recurso</button><button class="btn btn-primary" type="button" data-ir="equipos">Siguiente: equipos →</button></div>
   </section>
+  </div>
 
-  <!-- 4. Equipos -->
+  <!-- 5. Equipos -->
+  <div class="panel" id="panel-equipos" role="tabpanel" hidden>
   <section class="card" id="paso-equipos">
-    <div class="card-head"><span class="num">4</span><div><h2>Equipos</h2><p class="muted">Marca o tipo de cada módulo. Puedes editar sus parámetros técnicos y económicos.</p></div></div>
+    <div class="card-head"><span class="num">5</span><div><h2>Equipos</h2><p class="muted">Marca o tipo de cada módulo. Puedes editar sus parámetros técnicos y económicos.</p></div></div>
     <div class="equipos" id="equipos"></div>
-    <p class="fine">Cada equipo indica su fuente. Los marcados «tesis» usan los valores del artículo (Tablas 2.2.3 y 2.2.5); los que citan un artículo toman de él sus parámetros técnicos y, cuando los informa, sus costos; los demás son referenciales. Revísalos antes de usar los resultados para una decisión.</p>
+    <p class="fine">Cada equipo indica su fuente. Los marcados «caso de ejemplo» usan los valores del caso de referencia (ver «Acerca del simulador»); los que citan un artículo toman de él sus parámetros técnicos y, cuando los informa, sus costos; los demás son referenciales. Revísalos antes de usar los resultados para una decisión.</p>
   </section>
 
-  <!-- 5. Criterios -->
+  <section class="card" id="paso-distribucion">
+    <div class="card-head"><span class="num">5b</span><div><h2>Distribución en la zona</h2><p class="muted">Cuántos aerogeneradores y paneles caben en el terreno, y cómo ubicarlos para aprovechar mejor el viento.</p></div></div>
+    <p class="status warn" id="lay-sin-zona">Dibuja una zona en la pestaña 1 para calcular la distribución.</p>
+    <div class="grid-2" id="lay-contenido" hidden>
+      <div>
+        <div class="mapa chico" id="mapa-layout" aria-label="Distribución de los aerogeneradores en la zona"></div>
+        <p class="fine">Círculos: aerogeneradores, con el radio del rotor. En verde, los que usa el último resultado; en blanco, posiciones libres. Las filas son perpendiculares al eje dominante del viento.</p>
+      </div>
+      <div>
+        <label class="check"><input type="checkbox" id="lay-usar" checked> Respetar la superficie de la zona al dimensionar</label>
+        <h3 class="sub">Aerogeneradores</h3>
+        <div class="form-grid tight">
+          <label>Eje dominante del viento (°) <input type="number" id="lay-eje" min="0" max="179" step="1" value="0"></label>
+          <label>Separación en el eje del viento (diámetros) <input type="number" id="lay-sx" min="2" max="15" step="0.5" value="7"></label>
+          <label>Separación transversal (diámetros) <input type="number" id="lay-sy" min="1.5" max="10" step="0.5" value="4"></label>
+          <label>Retiro desde el borde (alturas de punta) <input type="number" id="lay-retiro" min="0" max="3" step="0.1" value="1"></label>
+        </div>
+        <p class="fine" id="lay-eje-nota"></p>
+        <h3 class="sub">Paneles</h3>
+        <div class="form-grid tight">
+          <label>Terreno aprovechable para mesas (%) <input type="number" id="lay-aprov" min="10" max="100" step="1" value="85"></label>
+        </div>
+        <div class="kpis compactos" id="lay-kpis"></div>
+        <p class="fine">Las filas de aerogeneradores separadas 5 a 9 diámetros en el eje del viento y 3 a 5 en el transversal mantienen las pérdidas por estela bajas (el simulador no las descuenta). El retiro de una altura de punta (buje + radio) evita que un equipo caiga fuera del terreno. Los paneles miran al norte, inclinados en la latitud, con la distancia entre filas que evita sombras al mediodía del solsticio de invierno. Si usas ambas tecnologías, el optimizador reparte el terreno: cada aerogenerador ocupa su celda de separación y cada panel su parte de la fila; juntos no pueden pasar de la superficie de la zona.</p>
+      </div>
+    </div>
+    <div class="nav-pasos"><button class="btn" type="button" data-ir="arquitectura">← arquitectura</button><button class="btn btn-primary" type="button" data-ir="criterios">Siguiente: economía y confiabilidad →</button></div>
+  </section>
+  </div>
+
+  <!-- 6. Criterios -->
+  <div class="panel" id="panel-criterios" role="tabpanel" hidden>
   <section class="card" id="paso-criterios">
-    <div class="card-head"><span class="num">5</span><div><h2>Economía y confiabilidad</h2><p class="muted">Qué se minimiza y qué confiabilidad debe cumplir el sistema.</p></div></div>
+    <div class="card-head"><span class="num">6</span><div><h2>Parámetros económicos y de confiabilidad</h2><p class="muted">Qué se minimiza y qué confiabilidad debe cumplir el sistema.</p></div></div>
     <div class="form-grid">
       <label>Tasa de descuento nominal (%) <input type="number" id="eco-dn" step="0.1" value="8"></label>
       <label>Inflación esperada (%) <input type="number" id="eco-ie" step="0.1" value="3"></label>
@@ -153,11 +242,14 @@
       </div>
       <p class="fine">El hidrógeno sin usar es la menor energía que quedó en los tanques durante el año: una reserva que se pagó pero no se ocupó.</p>
     </details>
+    <div class="nav-pasos"><button class="btn" type="button" data-ir="equipos">← equipos</button><button class="btn btn-primary" type="button" data-ir="optimizacion">Siguiente: optimización →</button></div>
   </section>
+  </div>
 
-  <!-- 6. Optimización -->
+  <!-- 7. Optimización -->
+  <div class="panel" id="panel-optimizacion" role="tabpanel" hidden>
   <section class="card" id="paso-optimizacion">
-    <div class="card-head"><span class="num">6</span><div><h2>Optimización</h2><p class="muted" id="opt-sub">Busca la cantidad de equipos de cada módulo que minimiza el objetivo elegido.</p></div></div>
+    <div class="card-head"><span class="num">7</span><div><h2>Optimización</h2><p class="muted" id="opt-sub">Busca la cantidad de equipos de cada módulo que minimiza el objetivo elegido.</p></div></div>
     <div class="grid-2">
       <div>
         <label class="block">Método
@@ -167,7 +259,7 @@
         <div class="form-grid tight" id="metodo-params"></div>
         <div class="btns">
           <button class="btn btn-small" type="button" id="preset-rapido">Prueba rápida</button>
-          <button class="btn btn-small" type="button" id="preset-tesis">Parámetros de la tesis</button>
+          <button class="btn btn-small" type="button" id="preset-tesis">Búsqueda extensa</button>
         </div>
         <div class="form-grid tight">
           <label>Semilla <input type="number" id="opt-semilla" min="1" value="1"></label>
@@ -175,7 +267,7 @@
         </div>
         <details class="more">
           <summary>Límites de búsqueda</summary>
-          <p class="fine">Cantidad mínima y máxima de cada equipo. Se calculan solos a partir de la demanda; para el caso de la tesis se usan los del artículo.</p>
+          <p class="fine">Cantidad mínima y máxima de cada equipo. Se calculan solos a partir de la demanda y, si lo elegiste, de la superficie de la zona; para el caso de ejemplo se usan los de referencia.</p>
           <div id="limites"></div>
           <button class="btn btn-small" type="button" id="limites-auto">Volver a los límites automáticos</button>
         </details>
@@ -217,7 +309,7 @@
 
   <!-- 7. Resultados -->
   <section class="card" id="resultados" hidden>
-    <div class="card-head"><span class="num">7</span><div><h2>Resultados</h2><p class="muted" id="res-subtitulo"></p></div></div>
+    <div class="card-head"><span class="num">★</span><div><h2>Resultados</h2><p class="muted" id="res-subtitulo"></p></div></div>
     <div class="kpis" id="kpis"></div>
     <div class="aviso" id="aviso" role="status" hidden></div>
     <div class="ref" id="referencia" hidden></div>
@@ -243,30 +335,38 @@
     </div>
   </section>
 
-  <!-- Método -->
+  </div>
+
+  <!-- Acerca -->
+  <div class="panel" id="panel-acerca" role="tabpanel" hidden>
   <section class="card" id="metodo">
-    <div class="card-head"><span class="num">?</span><div><h2>¿Cómo funciona?</h2></div></div>
+    <div class="card-head"><span class="num">?</span><div><h2>Acerca del simulador</h2></div></div>
     <div class="prose">
-      <p>Cada hora del año, el algoritmo compara la energía generada por los aerogeneradores (bus AC) y los paneles (bus DC) con la demanda. Si sobra energía, primero se cargan las baterías y luego los electrolizadores la convierten en hidrógeno y la guardan en los tanques. Si falta, primero se descargan las baterías, luego las celdas de combustible devuelven la energía del hidrógeno y, al final, los generadores diésel cubren lo que queda. Los conversores DC/AC limitan cuánta energía pasa entre los buses. Sin baterías ni diésel, el despacho es exactamente el de la tesis.</p>
+      <h3 class="sub">¿Cómo funciona?</h3>
+      <p>Cada hora del año, el algoritmo compara la energía generada por los aerogeneradores (bus AC) y los paneles (bus DC) con la demanda. Si sobra energía, primero se cargan las baterías y luego los electrolizadores la convierten en hidrógeno y la guardan en los tanques. Si falta, primero se descargan las baterías, luego las celdas de combustible devuelven la energía del hidrógeno y, al final, los generadores diésel cubren lo que queda. Los conversores DC/AC limitan cuánta energía pasa entre los buses.</p>
       <p>El costo se mide con el <b>LCOE</b>: el costo presente neto (NPC) de todo el proyecto (inversión, reemplazos, operación y mantenimiento, menos el valor residual), anualizado con el factor de recuperación del capital y dividido por la energía suministrada. La confiabilidad se mide con el <b>LOLE</b> (horas del año con demanda sin cubrir) o con la <b>LPSP</b> (fracción de la energía demandada que no se suministra).</p>
       <p><b>Baterías:</b> eficiencia de carga y descarga, estado de carga mínimo (profundidad de descarga), potencia máxima según la tasa C y autodescarga. Su vida es la menor entre la vida de calendario y los ciclos equivalentes que resisten divididos por los ciclos que hacen al año. <b>Diésel:</b> consumo F = a·P + b·P<sub>nominal</sub> (L/h) con a = 0,246 y b = 0,08145 L/kWh (Diab et al., 2019), carga mínima por unidad y vida en horas de operación. Su NPC suma el combustible y la mantención de cada año, que dependen de cuánto funciona, y los reemplazos según las horas acumuladas. También se informan los litros al año, las emisiones (2,68 kg de CO₂ por litro) y la fracción renovable.</p>
       <p>Métodos disponibles:</p>
       <ul>
-        <li><b>Monte Carlo</b>, <b>algoritmo híbrido</b> (búsqueda caótica, armónica y recocido simulado) y <b>algoritmo genético</b>: los tres de la tesis, con sus mismos operadores y penalización.</li>
+        <li><b>Monte Carlo</b>, <b>algoritmo híbrido</b> (búsqueda caótica, armónica y recocido simulado) y <b>algoritmo genético</b>: métodos clásicos que descartan con una penalización las configuraciones que no cumplen la confiabilidad.</li>
         <li><b>Evolución diferencial adaptativa (SHADE)</b>: ajusta sola sus parámetros durante la búsqueda, compara soluciones con reglas de factibilidad (una solución que casi cumple vale más que una que falla por mucho) y termina con una búsqueda local entera.</li>
         <li><b>Enjambre de partículas (PSO)</b>, <b>lobo gris (GWO)</b>, <b>algoritmo de la ballena (WOA)</b> y <b>optimizador de equilibrio (EO)</b>: metaheurísticas muy usadas para dimensionar sistemas híbridos. En la literatura, WOA fue el mejor de cuatro métodos en <a href="https://doi.org/10.1109/ACCESS.2019.2936656" target="_blank" rel="noopener noreferrer">Diab et al. (2019)</a> y EO superó a GWO y otros tres en <a href="https://doi.org/10.1109/ACCESS.2021.3051573" target="_blank" rel="noopener noreferrer">Kharrich et al. (2021)</a>. Aquí usan las mismas reglas de factibilidad y el mismo pulido final que SHADE.</li>
         <li><b>NSGA-II</b> y <b>enjambre de partículas multiobjetivo (MOPSO)</b>: los dos métodos de referencia para frentes de Pareto en estos problemas (ver, por ejemplo, <a href="https://doi.org/10.3390/en15103579" target="_blank" rel="noopener noreferrer">Energies 15:3579, 2022</a>).</li>
       </ul>
-      <p>En el caso de la tesis (h = 0), con 20.000 simulaciones por corrida y 5 semillas: SHADE 1,4548 USD/kWh en todas; PSO 1,4549 en todas; EO y GWO 1,4549 a 1,460; genético 1,469 a 1,534; WOA 1,499 a 1,926; híbrido 1,52 a 1,73; Monte Carlo 1,55 a 1,61. El artículo informa 1,469 con el genético.</p>
-      <p class="fine">La simulación en este sitio reproduce exactamente el código Python de la tesis: mismo LCOE, LOLE, energía suministrada y pérdidas en las configuraciones de prueba del artículo.</p>
+      <h3 class="sub">Zona y recurso</h3>
+      <p>La superficie del polígono se calcula sobre la esfera terrestre y la elevación con el modelo Copernicus DEM (90 m), muestreado en hasta 100 puntos dentro de la zona. Si lo eliges, la superficie limita cuántos paneles y aerogeneradores puede probar el optimizador. Las series prealmacenadas son del reanálisis ERA5 (2023, paso horario), con la radiación calculada sobre un panel inclinado en la latitud y orientado al norte.</p>
+      <h3 class="sub">Origen del simulador</h3>
+      <p>Este simulador nace de la tesis «Dimensionamiento óptimo de un sistema híbrido de energías renovables con un sistema de almacenamiento de energía en forma de hidrógeno», de Ignacio Partarrieu Andrade (Magíster en Geofísica, Universidad de Concepción, 2026). El caso de ejemplo (localidad remota de 840 habitantes, lat. 45°S, con las series de ejemplo y los equipos marcados «caso de ejemplo») es el de la tesis, cuyos valores vienen de sus Tablas 2.2.3 y 2.2.5. Sin baterías ni diésel, la simulación reproduce exactamente el código Python de la tesis: mismo LCOE, LOLE, energía suministrada y pérdidas en las configuraciones de prueba. El Monte Carlo, el algoritmo híbrido y el algoritmo genético son los métodos usados en la tesis, con sus mismos operadores y penalización.</p>
+      <p>En el caso de ejemplo (h = 0), con 20.000 simulaciones por corrida y 5 semillas: SHADE 1,4548 USD/kWh en todas; PSO 1,4549 en todas; EO y GWO 1,4549 a 1,460; genético 1,469 a 1,534; WOA 1,499 a 1,926; híbrido 1,52 a 1,73; Monte Carlo 1,55 a 1,61. La tesis informa 1,469 USD/kWh con el algoritmo genético.</p>
     </div>
   </section>
+  </div>
 </main>
 
 <footer class="foot">
   <div class="wrap">
-    <p><b>Simulador HRES-H2</b> · Ignacio Partarrieu Andrade. Basado en la tesis «Dimensionamiento óptimo de un sistema híbrido de energías renovables con un sistema de almacenamiento de energía en forma de hidrógeno» (Magíster en Geofísica, Universidad de Concepción, 2026).</p>
-    <p>Datos: demanda de la localidad remota (datos de terceros, usada con permiso solo dentro de este simulador; no se autoriza su descarga ni redistribución); clima ERA5 de Copernicus/ECMWF vía <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a> (CC BY 4.0); perfiles residenciales NREL ResStock (CC BY 4.0). Gráficos con Chart.js (MIT).</p>
+    <p><b>Simulador HRES-H2</b> · Ignacio Partarrieu Andrade.</p>
+    <p>Datos: demanda de la localidad remota de ejemplo (datos de terceros, usados con permiso solo dentro de este simulador; no se autoriza su descarga ni redistribución); clima ERA5 de Copernicus/ECMWF y elevación Copernicus DEM vía <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a> (CC BY 4.0); mapas © colaboradores de OpenStreetMap, OpenTopoMap (CC BY-SA) y Esri; perfiles residenciales NREL ResStock (CC BY 4.0). Gráficos con Chart.js (MIT) y mapas con Leaflet (BSD-2).</p>
   </div>
 </footer>
 </body>

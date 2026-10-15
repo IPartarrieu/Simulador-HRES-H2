@@ -1,4 +1,4 @@
-// Codificación de la demanda de la localidad remota. Esos datos son de terceros: se pueden usar dentro del simulador,
+// Codificación de la demanda de la localidad remota de ejemplo. Esos datos son de terceros: se pueden usar dentro del simulador,
 // pero no se distribuyen como un archivo legible. No es un cifrado real (la clave viaja con el sitio):
 // solo evita que la serie se lea o descargue directamente. Conserva cada valor exacto (float64).
 

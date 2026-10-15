@@ -1,4 +1,4 @@
-// Revisa los métodos multiobjetivo en el caso de la localidad remota con baterías y diésel: el frente debe tener
+// Revisa los métodos multiobjetivo en el caso de ejemplo con baterías y diésel: el frente debe tener
 // solo configuraciones factibles, sin repetidas y no dominadas entre sí, y sus objetivos deben coincidir con
 // una simulación nueva de cada configuración.
 // Uso: node tests/multiobjetivo.mjs
