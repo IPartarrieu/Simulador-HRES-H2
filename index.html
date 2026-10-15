@@ -9,10 +9,10 @@
 <meta name="description" content="Simulador y optimizador del dimensionamiento de un sistema híbrido de energías renovables (eólica y solar) con almacenamiento de energía en forma de hidrógeno, para zonas del centro-sur de Chile.">
 <link rel="icon" href="assets/icono.svg" type="image/svg+xml">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="assets/style.css?v=20261015g">
+<link rel="stylesheet" href="assets/style.css?v=20261015h">
 <script src="vendor/chart.umd.min.js" defer></script>
 <script src="vendor/leaflet/leaflet.js" defer></script>
-<script type="module" src="assets/app.js?v=20261015g"></script>
+<script type="module" src="assets/app.js?v=20261015h"></script>
 </head>
 <body>
 <header class="top">
@@ -159,6 +159,22 @@
   <section class="card" id="paso-equipos">
     <div class="card-head"><span class="num">5</span><div><h2>Equipos</h2><p class="muted">Marca o tipo de cada módulo. Puedes editar sus parámetros técnicos y económicos.</p></div></div>
     <div class="equipos" id="equipos"></div>
+    <h3 class="sub">Pérdidas y disponibilidad</h3>
+    <div class="form-grid tight">
+      <label>Disponibilidad de los aerogeneradores (%) <input type="number" id="per-disp-wt" min="50" max="100" step="0.5" value="97"></label>
+      <label>Disponibilidad de los paneles (%) <input type="number" id="per-disp-pv" min="50" max="100" step="0.5" value="99"></label>
+      <label>Degradación anual de los paneles (%/año) <input type="number" id="per-degr" min="0" max="5" step="0.05" value="0.5"></label>
+    </div>
+    <p class="fine">La disponibilidad es la fracción del año en que el equipo está en servicio (mantenciones y fallas): típicamente 95-98 % en aerogeneradores pequeños y 99 % en plantas solares. La degradación de los módulos (0,4-0,8 %/año) se promedia en la vida del proyecto. La suciedad, los cables y el descalce entre módulos ya están en el factor de reducción del panel (0,8 por defecto, como en HOMER). El caso de ejemplo usa 100 %, 100 % y 0 %, como la tesis.</p>
+    <h3 class="sub">Hidrógeno en operación real</h3>
+    <div class="form-grid tight">
+      <label>Carga mínima del electrolizador (% por unidad) <input type="number" id="h2-ele-min" min="0" max="50" step="1" value="10"></label>
+      <label>Consumo auxiliar del electrolizador (% de su potencia) <input type="number" id="h2-ele-aux" min="0" max="20" step="0.5" value="3"></label>
+      <label>Compresión del H₂ (kWh por kg) <input type="number" id="h2-comp" min="0" max="10" step="0.1" value="2.5"></label>
+      <label>Carga mínima de la celda de combustible (% por unidad) <input type="number" id="h2-fc-min" min="0" max="50" step="1" value="5"></label>
+      <label>Consumo auxiliar de la celda (% de su potencia) <input type="number" id="h2-fc-aux" min="0" max="20" step="0.5" value="3"></label>
+    </div>
+    <p class="fine">Cada electrolizador funciona solo sobre su carga mínima (10-20 % en PEM y alcalinos) y, mientras opera, consume una parte de su potencia en bombas, enfriamiento y control; por eso rinde menos a carga parcial. Comprimir el H₂ hasta el tanque cuesta 2-4 kWh/kg (el kg de H₂ guarda 33,3 kWh). La celda de combustible consume un poco de H₂ por estar encendida, como la curva de combustible de HOMER, y a baja carga tiene que producir su mínimo aunque sobre. El caso de ejemplo usa ceros, como la tesis.</p>
     <p class="fine">Cada equipo indica su fuente. Los marcados «caso de ejemplo» usan los valores del caso de referencia (ver «Acerca del simulador»); los que citan un artículo toman de él sus parámetros técnicos y, cuando los informa, sus costos; los demás son referenciales. Revísalos antes de usar los resultados para una decisión.</p>
   </section>
 
@@ -524,6 +540,20 @@
 
     <div class="bib-grupo">
       <h3 class="sub">Despacho</h3>
+      <details class="termino"><summary>Disponibilidad y degradación</summary>
+        <p>La disponibilidad es la fracción del año en que un equipo está en servicio; multiplica su producción horaria. La degradación de los módulos FV reduce su potencia cada año; como el simulador usa un año tipo, se aplica su promedio en la vida del proyecto:</p>
+        <p class="ecuacion">P<sub>WT,t</sub> = P<sub>t</sub> · A<sub>WT</sub> &nbsp;&nbsp; P<sub>PV,t</sub> = P<sub>t</sub> · A<sub>PV</sub> · (1/N) Σ<sub>y=0</sub><sup>N−1</sup> (1 − d)<sup>y</sup></p>
+        <p class="en-sim">Con 0,5 %/año y 20 años, el factor medio es 0,953. HOMER no degrada los paneles por defecto; aquí se puede poner en 0.</p>
+      </details>
+      <details class="termino"><summary>Electrolizador en operación real</summary>
+        <p>Cada unidad opera solo sobre su carga mínima; la potencia que sobra bajo ese mínimo no se usa. Mientras opera, una fracción a de su potencia nominal va a auxiliares (bombas, enfriamiento, control), por lo que la eficiencia baja a carga parcial. La compresión del H₂ hasta el tanque se descuenta como electricidad extra por kWh de H₂ guardado (c = kWh/kg ÷ 33,33):</p>
+        <p class="ecuacion">E<sub>H₂</sub> = (P<sub>entra</sub> − a · P<sub>unidad</sub> · k<sub>on</sub>) · η<sub>ele</sub> / (1 + c · η<sub>ele</sub>)</p>
+      </details>
+      <details class="termino"><summary>Celda de combustible en operación real</summary>
+        <p>Igual que la curva de combustible de los generadores de HOMER, la celda consume un poco de H₂ por estar encendida (a: fracción de su potencia nominal) además del proporcional a lo que entrega, y cada unidad encendida produce al menos su carga mínima, aunque sobre:</p>
+        <p class="ecuacion">H<sub>usado</sub> = (máx(P, k<sub>on</sub> · P<sub>unidad</sub> · m) + a · P<sub>unidad</sub> · k<sub>on</sub>) / η<sub>FC</sub></p>
+        <p class="en-sim">Con todos estos parámetros en 0 el despacho es exactamente el de la tesis.</p>
+      </details>
       <details class="termino"><summary>Estrategia de despacho</summary>
         <p>Cada hora: (1) los aerogeneradores atienden la carga en el bus AC; (2) los paneles la complementan a través del conversor; (3) si sobra energía, primero se cargan las baterías y luego el electrolizador produce hidrógeno; (4) si falta, primero se descargan las baterías, luego las celdas de combustible usan el hidrógeno y, al final, los generadores diésel cubren el resto. Sin baterías ni diésel, el despacho es idéntico al del código Python de la tesis.</p>
       </details>

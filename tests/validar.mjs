@@ -86,6 +86,20 @@ otros.push(
   ["ladera al norte rinde más que el plano", +(fl(ladera(-0.1)) > fl(null)), 1, 0],
   ["ladera al sur rinde menos que el plano", +(fl(ladera(0.1)) < fl(null)), 1, 0],
 );
+// Hidrógeno en operación real: con carga mínima, auxiliares y compresión entra menos H₂ que con el despacho ideal,
+// y con todo en cero el resultado es idéntico.
+const cfgH = [11, 37659, 196, 347, 16455, 69];
+const casoH = (h2) => prepararCaso({ demanda: datos.demanda_kw, wtKw: datos.tesis.wt_kw, pvKw: datos.tesis.pv_kw, equipos, economia: ECONOMIA_TESIS, h2 });
+const cero = { ele: { cargaMin: 0, aux: 0 }, comp: 0, fc: { cargaMin: 0, aux: 0 } }, real = { ele: { cargaMin: 0.1, aux: 0.03 }, comp: 2.5 / 33.33, fc: { cargaMin: 0.05, aux: 0.03 } };
+const rIdeal = simular(caso, cfgH), rCero = simular(casoH(cero), cfgH), rReal = simular(casoH(real), cfgH);
+const soloComp = simular(casoH({ ...cero, comp: 2.5 / 33.33 }), cfgH);
+otros.push(
+  ["H₂ con parámetros en cero = tesis (LCOE)", rCero.lcoe, rIdeal.lcoe, 0],
+  ["H₂ real: más energía no suministrada", +(rReal.ens > rIdeal.ens), 1, 0],
+  ["electrolizador real (sin cambiar la celda): entra menos hidrógeno", +(simular(casoH({ ...real, fc: cero.fc }), cfgH).h2Entra < rIdeal.h2Entra), 1, 0],
+  ["H₂ real: no mejora la confiabilidad", +(rReal.lole >= rIdeal.lole), 1, 0],
+  ["compresión sola: menos H₂ que el ideal", +(soloComp.h2Entra < rIdeal.h2Entra), 1, 0],
+);
 for (const [nombre, a, e, tol] of otros) {
   const ok = cerca(a, e, tol); fallas += ok ? 0 : 1;
   console.log(`${ok ? "✓" : "✗"} ${nombre} → ${a.toFixed(4)} (esperado ${e.toFixed(4)})`);

@@ -179,16 +179,21 @@ export function npcUnidad(dev, df, anios, anual = 0) {
 // `estela` (opcional, de zona.estelaParque): eficiencia del parque por sector y sector de cada hora.
 // `campoFV` (opcional, de zona.interaccionPV): factor de producción FV del campo solar (relieve, sombra entre filas y
 // de los aerogeneradores) con n aerogeneradores y k celdas, con `m2Panel` (terreno por panel) para pasar a celdas.
-export function prepararCaso({ demanda, wtKw, pvKw, equipos, economia, terreno = null, estela = null, campoFV = null }) {
+// `perdidas` (opcional): factores que multiplican la producción ya recortada a la potencia nominal (disponibilidad
+// de cada tecnología y degradación media de los paneles en la vida del proyecto). Sin ellos, igual que la tesis.
+// `h2` (opcional): operación real del hidrógeno (fracciones): electrolizador {cargaMin, aux}, compresión `comp`
+// (kWh eléctricos por kWh de H₂ guardado) y celda {cargaMin, aux}. Con todo en 0 se usa el despacho de la tesis.
+export function prepararCaso({ demanda, wtKw, pvKw, equipos, economia, terreno = null, estela = null, campoFV = null, perdidas = null, h2 = null }) {
   const eq = { bat: CATALOGO.bat[0], dg: CATALOGO.dg[0], ...equipos };
   const eco = { ...ECONOMIA_TESIS, ...economia };
   const n = demanda.length;
   const D = new Float64Array(n), WT = new Float64Array(n), PV = new Float64Array(n);
   let sumaD = 0, maxD = 0;
+  const fWt = perdidas?.wt ?? 1, fPv = perdidas?.pv ?? 1;
   for (let t = 0; t < n; t++) {
     D[t] = demanda[t] * (1 + eco.reserva);
-    WT[t] = wtKw ? Math.min(wtKw[t], eq.wt.pr) : 0;     // la tesis recorta a la potencia nominal
-    PV[t] = pvKw ? Math.min(pvKw[t], eq.pv.pr) : 0;
+    WT[t] = wtKw ? Math.min(wtKw[t], eq.wt.pr) * fWt : 0;     // la tesis recorta a la potencia nominal
+    PV[t] = pvKw ? Math.min(pvKw[t], eq.pv.pr) * fPv : 0;
     sumaD += D[t]; if (D[t] > maxD) maxD = D[t];
   }
   const i = tasaReal(eco.dn, eco.ie);
@@ -208,6 +213,7 @@ export function prepararCaso({ demanda, wtKw, pvKw, equipos, economia, terreno =
     npcU, ciU: MODULOS.map((k) => eq[k].ci), terreno,
     estela: estela && { eta: Float32Array.from(estela.eta), sec: estela.sec && Uint8Array.from(estela.sec), S: estela.S, nMax: estela.nMax },
     campoFV: campoFV && { ...campoFV, tabla: Float32Array.from(campoFV.tabla) },
+    h2: h2 && (h2.ele.cargaMin || h2.ele.aux || h2.comp || h2.fc.cargaMin || h2.fc.aux) ? h2 : null,
   };
 }
 
@@ -246,6 +252,7 @@ export function simular(caso, cfg, completo = false) {
   const etaEle = caso.ele.eta, capEle = nEle * caso.ele.pr;
   const capHt = nHt * caso.ht.cap;
   const etaFc = caso.fc.eta, capFc = nFc * caso.fc.pr;
+  const H2 = caso.h2, etaEleComp = H2 ? etaEle / (1 + H2.comp * etaEle) : etaEle;   // con la compresión
   const B = caso.bat, capBat = nBat * B.cap, socMin = capBat * B.socMin, pBat = capBat * B.cRate;
   const G = caso.dg, prDg = G.pr;
 
@@ -288,7 +295,16 @@ export function simular(caso, cfg, completo = false) {
       const carga = Math.min(exc, pBat, (capBat - soc) / B.etaC);
       if (carga > 0) { soc += carga * B.etaC; exc -= carga; batEntra += carga; }
     }
-    if (exc > 0) {                                   // luego al electrolizador y a los tanques
+    if (exc > 0 && H2 && nEle > 0) {                 // electrolizador real: por unidad, con carga mínima y auxiliares
+      const unIn = caso.ele.pr / etaEle;             // potencia eléctrica nominal de una unidad
+      let x = Math.min(exc, nEle * unIn), k = Math.floor(x / unIn + 1e-9);
+      const r = x - k * unIn;
+      if (r > 1e-9 && r >= H2.ele.cargaMin * unIn) k++; else x -= r;   // bajo la carga mínima, el resto no se usa
+      const H = Math.max(0, x - H2.ele.aux * unIn * k) * etaEleComp;
+      const E = Math.min(H, eStrMax - eStr);
+      lossEle = (exc - x) * etaEle; lossStr = H - E;
+      eStr += E; h2Entra += E;
+    } else if (exc > 0) {                            // luego al electrolizador y a los tanques
       const A = exc * etaEle;
       const eEleHt = Math.min(A, capEle);
       lossEle = Math.max(A - capEle, 0);
@@ -304,7 +320,15 @@ export function simular(caso, cfg, completo = false) {
         batOut = Math.min(necStr, pBat, Math.max(0, soc - socMin) * B.etaD);
         if (batOut > 0) { soc -= batOut / B.etaD; necStr -= batOut; batSale += batOut; }
       }
-      if (necStr > 0) {                              // luego los tanques y las celdas de combustible
+      if (necStr > 0 && H2) {                        // celda real: por unidad, con carga mínima y auxiliares
+        const prF = caso.fc.pr, disp = Math.min(eStr - eStrMin, capHt);
+        let P = Math.min(necStr, capFc);
+        const k = Math.ceil(P / prF - 1e-9), aux = H2.fc.aux * prF * k;
+        let prod = Math.max(P, k * prF * H2.fc.cargaMin), H = k ? (prod + aux) / etaFc : 0;
+        if (H > disp) { P = prod = Math.max(0, disp * etaFc - aux); H = P > 0 ? (P + aux) / etaFc : 0; }
+        eStr -= H; h2Sale += H;
+        eFcSys = P; lossFc = prod - P;
+      } else if (necStr > 0) {                       // luego los tanques y las celdas de combustible
         const X = necStr / etaFc;
         const eHtFc = Math.min(X, eStr - eStrMin, capHt);
         eStr -= eHtFc; h2Sale += eHtFc;

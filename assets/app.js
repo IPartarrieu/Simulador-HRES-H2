@@ -1,10 +1,10 @@
 // Página del Simulador HRES-H2: arma el caso con lo que elige la persona, reparte las simulaciones entre
 // Web Workers, ejecuta el método de optimización (uno o varios objetivos) y muestra los resultados.
-import { CATALOGO, MODULOS, NOMBRES, ECONOMIA_TESIS, FUENTES, OBJETIVOS_MO, potenciaPV, potenciaWT, limitesPorDefecto, flujoCaja, crf, tasaReal } from "./model.js?v=20261015g";
-import { monteCarlo, genetico, shade, pso, gwo, woa, eo, nsga2, mopso, aptitud, PENALIZACION } from "./optimizers.js?v=20261015g";
-import * as dem from "./demand.js?v=20261015g";
-import { svgDiagrama, svgLayout, descargarSVG, descargarPNG, descargar } from "./diagram.js?v=20261015g";
-import * as zona from "./zona.js?v=20261015g";
+import { CATALOGO, MODULOS, NOMBRES, ECONOMIA_TESIS, FUENTES, OBJETIVOS_MO, potenciaPV, potenciaWT, limitesPorDefecto, flujoCaja, crf, tasaReal } from "./model.js?v=20261015h";
+import { monteCarlo, genetico, shade, pso, gwo, woa, eo, nsga2, mopso, aptitud, PENALIZACION } from "./optimizers.js?v=20261015h";
+import * as dem from "./demand.js?v=20261015h";
+import { svgDiagrama, svgLayout, descargarSVG, descargarPNG, descargar } from "./diagram.js?v=20261015h";
+import * as zona from "./zona.js?v=20261015h";
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -483,6 +483,21 @@ function leerEconomia() {
   return { dn: num("#eco-dn") / 100, ie: num("#eco-ie") / 100, anios: Math.min(50, Math.max(1, Math.round(num("#eco-anios")))),
     reserva: Math.max(0, num("#eco-reserva")) / 100, diesel: Math.max(0, num("#eco-diesel")) };
 }
+// Disponibilidad (fracción del año en servicio) y degradación de los paneles, como factores de producción.
+// La degradación se promedia en la vida del proyecto: (1/N) Σ (1 − d)^y, y = 0..N−1.
+function leerPerdidas() {
+  const N = leerEconomia().anios, d = Math.min(5, Math.max(0, num("#per-degr"))) / 100;
+  let deg = 0;
+  for (let y = 0; y < N; y++) deg += (1 - d) ** y;
+  const disp = (sel) => Math.min(100, Math.max(50, num(sel))) / 100;
+  return { wt: disp("#per-disp-wt"), pv: disp("#per-disp-pv") * (deg / N), degMedia: deg / N };
+}
+// Operación real del hidrógeno, en fracciones (compresión: kWh por kWh de H₂, con 33,33 kWh/kg).
+function leerH2() {
+  const f = (sel, max) => Math.min(max, Math.max(0, num(sel))) / 100;
+  return { ele: { cargaMin: f("#h2-ele-min", 50), aux: f("#h2-ele-aux", 20) }, comp: Math.min(10, Math.max(0, num("#h2-comp"))) / 33.33,
+    fc: { cargaMin: f("#h2-fc-min", 50), aux: f("#h2-fc-aux", 20) } };
+}
 function objetivosMO() { return $$("#obj-mo input:checked").map((i) => i.value); }
 function leerCriterio() {
   const tipo = $("#conf-tipo").value, modo = radio("modo");
@@ -640,7 +655,7 @@ class Pool {
   constructor(n) {
     this.pend = new Map(); this.id = 0;
     this.workers = Array.from({ length: n }, () => {
-      const w = new Worker(new URL("./worker.js?v=20261015g", import.meta.url), { type: "module" });
+      const w = new Worker(new URL("./worker.js?v=20261015h", import.meta.url), { type: "module" });
       w.onmessage = (e) => {
         const p = this.pend.get(e.data.id);
         if (!p) return;
@@ -712,7 +727,7 @@ async function armarCaso() {
     campoFV = { ...cacheSombra.val, m2Panel: d.paneles.m2PorPanel };
   }
   return { demanda: Array.from(estado.demanda), wtKw: Array.from(s.wt), pvKw: Array.from(s.pv), equipos: clonar(estado.equipos), economia: leerEconomia(),
-    terreno: t && { area: t.area, aWt: t.aWt, aPv: t.aPv }, estela: est && { eta: est.eta, sec: est.sec, S: est.S, nMax: est.nMax }, campoFV };
+    perdidas: leerPerdidas(), h2: leerH2(), terreno: t && { area: t.area, aWt: t.aWt, aPv: t.aPv }, estela: est && { eta: est.eta, sec: est.sec, S: est.S, nMax: est.nMax }, campoFV };
 }
 
 let ultimoGrafico = 0;
@@ -1106,7 +1121,7 @@ async function mostrar3D(op) {
   const ley = $("#leyenda-3d"); ley.replaceChildren();
   const chip = (color, texto) => { const s = document.createElement("span"), i = document.createElement("i"); i.style.background = color; s.append(i, texto); ley.appendChild(s); };
   try {
-    const m = await import("./escena3d.js?v=20261015g");
+    const m = await import("./escena3d.js?v=20261015h");
     chip("#FF8A3D", "Zona");
     if (op.cfg[0]) chip("#F7F8FA", `Aerogeneradores (${fmt(op.cfg[0])})`);
     if (op.cfg[1]) chip("#2456A6", `Paneles (${fmt(op.cfg[1])})`);
@@ -1191,6 +1206,8 @@ async function cargarCasoTesis() {
   $("#arq-bat").checked = $("#arq-dg").checked = false;
   estado.equipos = Object.fromEntries(MODULOS.map((k) => [k, clonar(CATALOGO[k].find((d) => d.id === DEFECTO_IDS[k]))]));
   $("#eco-dn").value = 8; $("#eco-ie").value = 3; $("#eco-anios").value = 20; $("#eco-reserva").value = 10; $("#eco-diesel").value = 1;
+  $("#per-disp-wt").value = $("#per-disp-pv").value = 100; $("#per-degr").value = 0;    // la tesis no las considera
+  ["#h2-ele-min", "#h2-ele-aux", "#h2-comp", "#h2-fc-min", "#h2-fc-aux"].forEach((s) => { $(s).value = 0; });
   $("#conf-tipo").value = "lole"; $("#conf-h").value = 0; $("#conf-energia").checked = false;
   $('input[name="modo"][value="uno"]').checked = true; $("#obj-unico").value = "lcoe";
   $("#pen-exc").value = 0; $("#pen-h2").value = 0;
@@ -1233,7 +1250,7 @@ function iniciar() {
   $$('input[name="recurso"]').forEach((r) => r.addEventListener("change", cambiarRecurso));
   $("#ub-cargar").addEventListener("click", cargarUbicacion);
   ["#arq-wt", "#arq-pv", "#arq-hess", "#arq-bat", "#arq-dg"].forEach((s) => $(s).addEventListener("change", () => { cambiosGenerales(); renderEquipos(); }));
-  ["#eco-dn", "#eco-ie", "#eco-anios", "#eco-reserva", "#eco-diesel", "#conf-tipo", "#conf-h", "#conf-lpsp", "#conf-energia", "#obj-unico", "#pen-exc", "#pen-h2"]
+  ["#eco-dn", "#eco-ie", "#eco-anios", "#eco-reserva", "#eco-diesel", "#per-disp-wt", "#per-disp-pv", "#per-degr", "#h2-ele-min", "#h2-ele-aux", "#h2-comp", "#h2-fc-min", "#h2-fc-aux", "#conf-tipo", "#conf-h", "#conf-lpsp", "#conf-energia", "#obj-unico", "#pen-exc", "#pen-h2"]
     .forEach((s) => $(s).addEventListener("change", cambiosGenerales));
   $$('input[name="modo"]').forEach((r) => r.addEventListener("change", cambiosGenerales));
   $("#limites-auto").addEventListener("click", () => { estado.limitesEditados = false; renderLimites(); });
