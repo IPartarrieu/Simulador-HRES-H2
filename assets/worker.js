@@ -1,8 +1,8 @@
 // Worker de simulación: recibe el caso una vez y luego evalúa configuraciones sin bloquear la página.
 // Mensajes: init (prepara el caso), lote (evalúa varias configuraciones), ha (corridas completas del
 // algoritmo híbrido) y completo (simulación con series horarias para mostrar resultados).
-import { prepararCaso, simular, violacion, evaluacion } from "./model.js";
-import { correrHA } from "./optimizers.js";
+import { prepararCaso, simular, violacion, evaluacion } from "./model.js?v=20261015b";
+import { correrHA } from "./optimizers.js?v=20261015b";
 
 let caso = null, crit = { tipo: "lole", h: 0, usarEnergia: false, objetivo: "lcoe" };
 

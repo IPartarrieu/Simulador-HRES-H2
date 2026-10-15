@@ -1,10 +1,10 @@
 // Página del Simulador HRES-H2: arma el caso con lo que elige la persona, reparte las simulaciones entre
 // Web Workers, ejecuta el método de optimización (uno o varios objetivos) y muestra los resultados.
-import { CATALOGO, MODULOS, NOMBRES, ECONOMIA_TESIS, FUENTES, OBJETIVOS_MO, potenciaPV, potenciaWT, limitesPorDefecto } from "./model.js";
-import { monteCarlo, genetico, shade, pso, gwo, woa, eo, nsga2, mopso, aptitud, PENALIZACION } from "./optimizers.js";
-import * as dem from "./demand.js";
-import { svgDiagrama, svgLayout, descargarSVG, descargarPNG, descargar } from "./diagram.js";
-import * as zona from "./zona.js";
+import { CATALOGO, MODULOS, NOMBRES, ECONOMIA_TESIS, FUENTES, OBJETIVOS_MO, potenciaPV, potenciaWT, limitesPorDefecto } from "./model.js?v=20261015b";
+import { monteCarlo, genetico, shade, pso, gwo, woa, eo, nsga2, mopso, aptitud, PENALIZACION } from "./optimizers.js?v=20261015b";
+import * as dem from "./demand.js?v=20261015b";
+import { svgDiagrama, svgLayout, descargarSVG, descargarPNG, descargar } from "./diagram.js?v=20261015b";
+import * as zona from "./zona.js?v=20261015b";
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -620,7 +620,7 @@ class Pool {
   constructor(n) {
     this.pend = new Map(); this.id = 0;
     this.workers = Array.from({ length: n }, () => {
-      const w = new Worker(new URL("./worker.js", import.meta.url), { type: "module" });
+      const w = new Worker(new URL("./worker.js?v=20261015b", import.meta.url), { type: "module" });
       w.onmessage = (e) => {
         const p = this.pend.get(e.data.id);
         if (!p) return;
@@ -1006,9 +1006,14 @@ function mostrarResultados(cfg, r, meta, desplazarA = "#resultados") {
 // Figura con la ubicación de los equipos del resultado dentro de la zona.
 function renderLayoutResultado(cfg, r, meta) {
   const { zona: z, dist, equipos, arq } = meta.snap;
-  $("#res-layout").hidden = !z || !dist;
   estado.resultado.layoutSvg = null;
-  if (!z || !dist) return;
+  $("#res-layout").hidden = false;
+  $$("[data-layout]").forEach((btn) => { btn.disabled = !z || !dist; });
+  if (!z || !dist) {
+    $("#layout-res").replaceChildren();
+    $("#layout-nota").textContent = "Para ver dónde quedan los equipos, dibuja una zona en la pestaña 1 (Zona) y vuelve a simular. El caso de ejemplo (lat. 45°S) no tiene zona en el mapa.";
+    return;
+  }
   const pv = equipos.pv, areaMod = pv.pr / (pv.eff / 100), p = dist.paneles;
   const pitch = (2 * Math.sqrt(areaMod * 1.75)) / p.gcr;          // mesas de 2 paneles en vertical
   const geo = zona.layoutResultado(z.pts, { posiciones: dist.posiciones, ...dist.op, nWt: Math.min(cfg[0], dist.posiciones.length), areaPv: cfg[1] * p.m2PorPanel });

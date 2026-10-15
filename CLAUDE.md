@@ -34,6 +34,10 @@ Plan: primero se publica en el GitHub personal (cuenta `IPartarrieu`); después 
 - **El nombre de la localidad es confidencial**: en la página y el repositorio se llama «Localidad remota - 840 habitantes» y «Series de ejemplo lat. 45°S»; no escribir su nombre ni sus coordenadas exactas. La tesis solo se menciona en la sección «Acerca del simulador».
 - **La demanda de ejemplo es de terceros**. Ignacio autorizó publicarla en el simulador, pero **no que se pueda descargar**: va codificada en `demanda_codificada` (`assets/codec.js`, conserva los float64 exactos) y la página bloquea la descarga del CSV horario con esa demanda y con la sintética (que con poca variabilidad reproduce casi los mismos valores). No agregar ninguna vía de descarga de esa serie ni guardarla en texto plano en el repositorio. No es un cifrado real: si se necesitara protección fuerte, habría que simular en un servidor.
 
+## Publicar
+
+GitHub Pages guarda los archivos 10 minutos en caché. Los módulos propios llevan `?v=<versión>` en `index.html` y en cada `import` de `assets/`: al publicar cambios en `assets/`, cambiar esa versión en todos los archivos a la vez (`grep -rl '?v=' index.html assets | xargs sed -i 's/?v=VIEJA/?v=NUEVA/g'`).
+
 ## Probar
 
 ```bash
