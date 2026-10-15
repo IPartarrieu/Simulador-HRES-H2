@@ -66,7 +66,7 @@ export async function elevacion(pts) {
 /* ---------- Distribución de equipos dentro de la zona ---------- */
 
 // Coordenadas locales en metros (x al este, y al norte) alrededor de un origen; suficiente para zonas de pocos km.
-function proyeccion([lat0, lon0]) {
+export function proyeccion([lat0, lon0]) {
   const kx = 111320 * Math.cos(rad(lat0)), ky = 110540;
   return { a: ([la, lo]) => [(lo - lon0) * kx, (la - lat0) * ky], b: ([x, y]) => [lat0 + y / ky, lon0 + x / kx] };
 }

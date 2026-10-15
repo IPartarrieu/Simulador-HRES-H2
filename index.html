@@ -3,16 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://tile.openstreetmap.org https://a.tile.opentopomap.org https://b.tile.opentopomap.org https://c.tile.opentopomap.org https://server.arcgisonline.com; connect-src 'self' https://archive-api.open-meteo.com https://api.open-meteo.com; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://tile.openstreetmap.org https://a.tile.opentopomap.org https://b.tile.opentopomap.org https://c.tile.opentopomap.org https://server.arcgisonline.com https://s3.amazonaws.com; connect-src 'self' https://archive-api.open-meteo.com https://api.open-meteo.com; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>Simulador HRES-H2 · dimensionamiento de sistemas híbridos con hidrógeno</title>
 <meta name="description" content="Simulador y optimizador del dimensionamiento de un sistema híbrido de energías renovables (eólica y solar) con almacenamiento de energía en forma de hidrógeno, para zonas del centro-sur de Chile.">
 <link rel="icon" href="assets/icono.svg" type="image/svg+xml">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="assets/style.css?v=20261015b">
+<link rel="stylesheet" href="assets/style.css?v=20261015c">
 <script src="vendor/chart.umd.min.js" defer></script>
 <script src="vendor/leaflet/leaflet.js" defer></script>
-<script type="module" src="assets/app.js?v=20261015b"></script>
+<script type="module" src="assets/app.js?v=20261015c"></script>
 </head>
 <body>
 <header class="top">
@@ -312,7 +312,6 @@
     <div class="card-head"><span class="num">★</span><div><h2>Resultados</h2><p class="muted" id="res-subtitulo"></p></div></div>
     <div class="kpis" id="kpis"></div>
     <div class="aviso" id="aviso" role="status" hidden></div>
-    <div class="ref" id="referencia" hidden></div>
     <div class="table-wrap"><table class="tabla" id="tabla-equipos"></table></div>
     <div class="res-diagrama">
       <div>
@@ -328,11 +327,23 @@
     </div>
     <div class="res-layout" id="res-layout" hidden>
       <h3 class="sub">Ubicación de los equipos en la zona</h3>
-      <div class="diagram" id="layout-res"></div>
+      <div class="vista3d" id="layout-3d"></div>
+      <div class="leyenda3d" id="leyenda-3d"></div>
       <div class="btns">
-        <button class="btn btn-small" type="button" data-layout="svg">Layout SVG</button>
-        <button class="btn btn-small" type="button" data-layout="png">Layout PNG</button>
+        <button class="btn btn-small" type="button" id="v3-repetir">Repetir animación</button>
+        <button class="btn btn-small" type="button" id="v3-girar">Pausar giro</button>
+        <button class="btn btn-small" type="button" id="v3-superior">Vista superior</button>
+        <button class="btn btn-small" type="button" id="v3-video">Grabar video (WebM)</button>
       </div>
+      <p class="fine" id="layout-3d-estado"></p>
+      <details class="more">
+        <summary>Plano 2D del layout</summary>
+        <div class="diagram" id="layout-res"></div>
+        <div class="btns">
+          <button class="btn btn-small" type="button" data-layout="svg">Plano SVG</button>
+          <button class="btn btn-small" type="button" data-layout="png">Plano PNG</button>
+        </div>
+      </details>
       <p class="fine" id="layout-nota"></p>
     </div>
     <div class="charts">
@@ -341,6 +352,7 @@
       <div class="chart-box"><h3>Energía almacenada (kWh)</h3><canvas id="graf-h2"></canvas></div>
       <div class="chart-box"><h3>Energía no suministrada y excedentes perdidos (kWh por día)</h3><canvas id="graf-perdidas"></canvas></div>
       <div class="chart-box"><h3>Costo presente neto por módulo</h3><canvas id="graf-costos"></canvas></div>
+      <div class="chart-box ancho"><h3>Flujo de caja del proyecto <select id="fc-modo" class="mini" aria-label="Tipo de flujo de caja"><option value="nominal">nominal</option><option value="descontado">descontado</option></select></h3><canvas id="graf-flujo"></canvas></div>
     </div>
   </section>
 
@@ -365,8 +377,193 @@
       <h3 class="sub">Zona y recurso</h3>
       <p>La superficie del polígono se calcula sobre la esfera terrestre y la elevación con el modelo Copernicus DEM (90 m), muestreado en hasta 100 puntos dentro de la zona. Si lo eliges, la superficie limita cuántos paneles y aerogeneradores puede probar el optimizador. Las series prealmacenadas son del reanálisis ERA5 (2023, paso horario), con la radiación calculada sobre un panel inclinado en la latitud y orientado al norte.</p>
       <h3 class="sub">Origen del simulador</h3>
-      <p>Este simulador nace de la tesis «Dimensionamiento óptimo de un sistema híbrido de energías renovables con un sistema de almacenamiento de energía en forma de hidrógeno», de Ignacio Partarrieu Andrade (Magíster en Geofísica, Universidad de Concepción, 2026). El caso de ejemplo (localidad remota de 840 habitantes, lat. 45°S, con las series de ejemplo y los equipos marcados «caso de ejemplo») es el de la tesis, cuyos valores vienen de sus Tablas 2.2.3 y 2.2.5. Sin baterías ni diésel, la simulación reproduce exactamente el código Python de la tesis: mismo LCOE, LOLE, energía suministrada y pérdidas en las configuraciones de prueba. El Monte Carlo, el algoritmo híbrido y el algoritmo genético son los métodos usados en la tesis, con sus mismos operadores y penalización.</p>
-      <p>En el caso de ejemplo (h = 0), con 20.000 simulaciones por corrida y 5 semillas: SHADE 1,4548 USD/kWh en todas; PSO 1,4549 en todas; EO y GWO 1,4549 a 1,460; genético 1,469 a 1,534; WOA 1,499 a 1,926; híbrido 1,52 a 1,73; Monte Carlo 1,55 a 1,61. La tesis informa 1,469 USD/kWh con el algoritmo genético.</p>
+      <p>Este simulador nace de la tesis «Dimensionamiento óptimo de un sistema híbrido de energías renovables con un sistema de almacenamiento de energía en forma de hidrógeno», de Ignacio Partarrieu Andrade (Magíster en Geofísica, Universidad de Concepción, 2026). El caso de ejemplo (localidad remota de 840 habitantes, lat. 45°S, con las series de ejemplo y los equipos marcados «caso de ejemplo») es el de la tesis, cuyos valores vienen de sus Tablas 2.2.3 y 2.2.5. Sin baterías ni diésel, el despacho horario reproduce exactamente el código Python de la tesis (mismo LOLE, energía suministrada, pérdidas e hidrógeno en las configuraciones de prueba). Los costos, en cambio, siguen el flujo de caja de HOMER (ver «Costo presente neto» y «Valor residual» en la biblioteca), por lo que el LCOE es algo mayor que el publicado en la tesis: la configuración que la tesis informa con 1,469 USD/kWh cuesta 1,572 USD/kWh con el flujo de caja de HOMER. El Monte Carlo, el algoritmo híbrido y el algoritmo genético son los métodos usados en la tesis, con sus mismos operadores y penalización.</p>
+      <p>En el caso de ejemplo (h = 0), con 20.000 simulaciones por corrida y 5 semillas: SHADE 1,5570 USD/kWh en todas; PSO 1,5570 a 1,5572; EO 1,5573 a 1,559; GWO 1,558 a 1,583; genético 1,572 a 1,664; WOA 1,565 a 2,004; híbrido 1,62 a 1,82; Monte Carlo 1,63 a 1,70 (costos con el flujo de caja de HOMER).</p>
+    </div>
+  </section>
+  <section class="card" id="biblioteca">
+    <div class="card-head"><span class="num">≡</span><div><h2>Biblioteca</h2><p class="muted">Cada término y función del simulador, con su ecuación. Está organizada como el manual de <a href="https://homerenergy.com/products/pro/docs/latest/index.html" target="_blank" rel="noopener noreferrer">HOMER Pro 3.16</a>, en el que se basa la lógica del simulador.</p></div></div>
+    <label class="buscar">Buscar un término <input type="search" id="bib-buscar" placeholder="Por ejemplo: valor residual, LPSP, GCR"></label>
+    <p class="fine" id="bib-vacio" hidden>No hay términos que coincidan.</p>
+
+    <div class="bib-grupo">
+      <h3 class="sub">Cómo se relaciona con HOMER Pro</h3>
+      <details class="termino"><summary>Lógica general</summary>
+        <p>Igual que HOMER, el simulador hace tres cosas: <b>simula</b> el sistema hora a hora durante un año, <b>calcula</b> su costo presente neto con un flujo de caja de toda la vida del proyecto y <b>optimiza</b>, buscando la combinación de equipos de menor costo que cumple las restricciones. Las diferencias: HOMER enumera un espacio de búsqueda definido por la persona, mientras que aquí se usan metaheurísticas (genético, SHADE, PSO y otras) y frentes de Pareto; además, el almacenamiento en hidrógeno sigue el despacho del modelo de la tesis y se agrega la zona del proyecto con su restricción de terreno.</p>
+      </details>
+    </div>
+
+    <div class="bib-grupo">
+      <h3 class="sub">Economía</h3>
+      <details class="termino"><summary>Costo presente neto (NPC, <i>net present cost</i>)</summary>
+        <p>Valor presente de todos los costos de instalar y operar el sistema durante la vida del proyecto, menos el valor presente de sus ingresos. Es la principal salida económica, igual que en HOMER: todas las configuraciones se comparan por su NPC o por el LCOE que se deriva de él.</p>
+        <p class="ecuacion">NPC = Σ<sub>j</sub> Σ<sub>t=0</sub><sup>N</sup> [ C<sub>cap,j,t</sub> + C<sub>rep,j,t</sub> + C<sub>O&amp;M,j,t</sub> + C<sub>comb,j,t</sub> − S<sub>j,t</sub> ] · f<sub>d</sub>(i, t)</p>
+        <p><b>Flujo de caja</b> (como en HOMER): la inversión ocurre en el año 0; los reemplazos, cada vez que se cumple la vida útil de un componente; la operación y mantenimiento y el combustible, al final de cada año; el valor residual, al final del último año. Los montos están en dólares de hoy y se descuentan con la tasa real, así que la inflación ya está considerada.</p>
+        <p class="en-sim">En el simulador: el gráfico «Flujo de caja del proyecto» de los resultados muestra cada categoría por año, nominal o descontada; la suma descontada es el NPC. Variables: j, componente; N, vida del proyecto (años); i, tasa de descuento real; S, valor residual. <a href="https://homerenergy.com/products/pro/docs/latest/net_present_cost.html" target="_blank" rel="noopener noreferrer">HOMER: Net Present Cost</a>.</p>
+      </details>
+      <details class="termino"><summary>Tasa de descuento real</summary>
+        <p>Tasa con que se pasan los costos futuros a dinero de hoy, sin el efecto de la inflación.</p>
+        <p class="ecuacion">i = (i′ − f) / (1 + f)</p>
+        <p class="en-sim">i′: tasa de descuento nominal (la tasa a la que podrías pedir un préstamo); f: inflación esperada. Con 8 % y 3 % resulta 4,85 %. <a href="https://homerenergy.com/products/pro/docs/latest/real_discount_rate.html" target="_blank" rel="noopener noreferrer">HOMER: Real Discount Rate</a>.</p>
+      </details>
+      <details class="termino"><summary>Factor de descuento</summary>
+        <p>Convierte un monto que ocurre en el año t a su valor presente.</p>
+        <p class="ecuacion">f<sub>d</sub>(i, t) = 1 / (1 + i)<sup>t</sup></p>
+        <p class="en-sim">Ejemplo de HOMER: i = 5 % y t = 12 años dan 0,557.</p>
+      </details>
+      <details class="termino"><summary>Factor de recuperación del capital (CRF)</summary>
+        <p>Convierte un valor presente en una serie de pagos anuales iguales durante N años.</p>
+        <p class="ecuacion">CRF(i, N) = i (1 + i)<sup>N</sup> / [ (1 + i)<sup>N</sup> − 1 ]</p>
+        <p class="en-sim">Ejemplo de HOMER: i = 7 % y N = 5 años dan 0,2439.</p>
+      </details>
+      <details class="termino"><summary>Costo anualizado total</summary>
+        <p>El costo anual constante que, a lo largo de la vida del proyecto, tiene el mismo valor presente que el NPC.</p>
+        <p class="ecuacion">C<sub>ann,tot</sub> = CRF(i, N) · NPC</p>
+      </details>
+      <details class="termino"><summary>Costo nivelado de energía (LCOE o COE)</summary>
+        <p>Costo promedio por kWh útil que entrega el sistema.</p>
+        <p class="ecuacion">LCOE = C<sub>ann,tot</sub> / E<sub>sum</sub></p>
+        <p class="en-sim">E<sub>sum</sub>: energía suministrada al año (kWh), que incluye la reserva operativa. Con penalizaciones, el objetivo que se minimiza es (C<sub>ann,tot</sub> + penalizaciones) / E<sub>sum</sub>. Como el sistema no atiende cargas térmicas, el término de calor de HOMER es cero. <a href="https://homerenergy.com/products/pro/docs/latest/levelized_cost_of_energy.html" target="_blank" rel="noopener noreferrer">HOMER: Levelized Cost of Energy</a>.</p>
+      </details>
+      <details class="termino"><summary>Valor residual (<i>salvage value</i>)</summary>
+        <p>Valor que le queda a un componente al terminar el proyecto. Se supone depreciación lineal y se calcula sobre el costo de reemplazo.</p>
+        <p class="ecuacion">S = C<sub>rep</sub> · R<sub>rem</sub> / R<sub>comp</sub> &nbsp;&nbsp; R<sub>rem</sub> = R<sub>comp</sub> − (R<sub>proj</sub> − R<sub>rep</sub>) &nbsp;&nbsp; R<sub>rep</sub> = R<sub>comp</sub> · INT(R<sub>proj</sub> / R<sub>comp</sub>)</p>
+        <p class="en-sim">R<sub>comp</sub>: vida del componente; R<sub>proj</sub>: vida del proyecto; R<sub>rem</sub>: vida que le queda a la última unidad instalada. Ejemplos: un panel de 25 años en un proyecto de 20 conserva 5/25 = 20 % de su costo de reemplazo; un electrolizador de 5 años se reemplaza en los años 5, 10, 15 y 20, y el del año 20 vuelve completo como valor residual. <a href="https://homerenergy.com/products/pro/docs/latest/salvage_value.html" target="_blank" rel="noopener noreferrer">HOMER: Salvage Value</a>.</p>
+      </details>
+      <details class="termino"><summary>Costo de capital, de reemplazo y de operación y mantenimiento</summary>
+        <p><b>Capital</b> (inversión inicial): compra e instalación, en el año 0. <b>Reemplazo</b>: lo que cuesta cambiar el componente al final de su vida útil; puede ser menor que el capital, porque no se repiten obras civiles ni ingeniería. <b>O&amp;M</b>: costo anual de operación y mantenimiento por unidad.</p>
+        <p class="en-sim">Se editan en la pestaña Equipos (inversión, reemplazo, O&amp;M y vida útil de cada equipo).</p>
+      </details>
+      <details class="termino"><summary>Vida útil del componente y vida del proyecto</summary>
+        <p>La vida del proyecto (N) fija el horizonte del flujo de caja. La vida útil de cada componente fija cuándo se reemplaza. En las baterías y los generadores diésel, la vida depende del uso, igual que en HOMER:</p>
+        <p class="ecuacion">vida<sub>bat</sub> = min( vida calendario, ciclos de vida / ciclos equivalentes al año ) &nbsp;&nbsp; vida<sub>DG</sub> = min( vida máxima, horas de vida / horas de operación al año )</p>
+      </details>
+      <details class="termino"><summary>Costo del combustible</summary>
+        <p>Costo anual del diésel: litros consumidos por su precio, más la mantención proporcional a la energía generada.</p>
+        <p class="ecuacion">C<sub>comb</sub> = L<sub>año</sub> · precio + O&amp;M<sub>kWh</sub> · E<sub>DG</sub></p>
+      </details>
+      <details class="termino"><summary>Penalizaciones</summary>
+        <p>Costos ficticios que se suman al costo anual para que el optimizador prefiera sistemas que desperdician menos: USD por kWh de excedente perdido y USD por kWh de hidrógeno que nunca se usó (la menor energía que quedó en los tanques durante el año). No forman parte del NPC informado.</p>
+      </details>
+    </div>
+
+    <div class="bib-grupo">
+      <h3 class="sub">Demanda y confiabilidad</h3>
+      <details class="termino"><summary>Reserva operativa</summary>
+        <p>Margen sobre la demanda que el sistema debe poder cubrir, para soportar variaciones repentinas. En HOMER es la <i>operating reserve</i>.</p>
+        <p class="ecuacion">D′<sub>t</sub> = D<sub>t</sub> · (1 + r)</p>
+      </details>
+      <details class="termino"><summary>Energía no suministrada (ENS, <i>unmet load</i>)</summary>
+        <p class="ecuacion">ENS = Σ<sub>t</sub> max(0, D′<sub>t</sub> − E<sub>sum,t</sub>)</p>
+        <p class="en-sim">El déficit de cada hora se redondea a 0,01 kWh, como en el código de la tesis.</p>
+      </details>
+      <details class="termino"><summary>Horas con déficit (LOLE)</summary>
+        <p>Número de horas del año en que la demanda no se cubre completa (déficit mayor que 0,01 kWh). Se usa como límite: «LOLE ≤ h».</p>
+      </details>
+      <details class="termino"><summary>Probabilidad de pérdida de suministro (LPSP)</summary>
+        <p>Fracción de la energía demandada que no se suministra. Equivale a la <i>capacity shortage fraction</i> de HOMER sobre la demanda total.</p>
+        <p class="ecuacion">LPSP = ENS / Σ<sub>t</sub> D′<sub>t</sub></p>
+      </details>
+      <details class="termino"><summary>Excedentes perdidos (<i>excess electricity</i>)</summary>
+        <p>Energía generada que no se pudo consumir ni guardar: excede la capacidad de los conversores, el electrolizador o los tanques, o es la que produce el diésel por sobre la demanda por su carga mínima.</p>
+      </details>
+      <details class="termino"><summary>Fracción renovable y emisiones</summary>
+        <p class="ecuacion">f<sub>ren</sub> = 1 − E<sub>DG</sub> / E<sub>sum</sub> &nbsp;&nbsp; CO₂ = 2,68 kg/L · L<sub>año</sub></p>
+      </details>
+    </div>
+
+    <div class="bib-grupo">
+      <h3 class="sub">Componentes</h3>
+      <details class="termino"><summary>Aerogenerador (WT)</summary>
+        <p><b>Viento a la altura del buje</b> con la ley potencial, con un exponente calculado hora a hora con el viento a 10 y 100 m (entre 0 y 0,6; 1/7 si el viento es muy bajo):</p>
+        <p class="ecuacion">α = ln(v<sub>100</sub> / v<sub>10</sub>) / ln 10 &nbsp;&nbsp; v<sub>buje</sub> = v<sub>10</sub> · (h<sub>buje</sub> / 10)<sup>α</sup></p>
+        <p><b>Curva de potencia</b> lineal entre la velocidad de arranque y la nominal, potencia nominal hasta la de corte, y cero fuera de ese rango. Luego se corrige por la <b>densidad del aire</b>, como en HOMER:</p>
+        <p class="ecuacion">P = P<sub>r</sub> (v − v<sub>cin</sub>) / (v<sub>r</sub> − v<sub>cin</sub>) &nbsp;&nbsp; ρ = p / (R<sub>d</sub> T) &nbsp;&nbsp; P<sub>WT</sub> = min( P · ρ / 1,225 ; P<sub>r</sub> )</p>
+        <p class="en-sim">Se conecta al bus AC. El diámetro del rotor se usa para la distribución en la zona.</p>
+      </details>
+      <details class="termino"><summary>Panel fotovoltaico (PV)</summary>
+        <p>Potencia según la radiación sobre el plano del panel (G, W/m²) y la temperatura de la celda, que se estima con la NOCT:</p>
+        <p class="ecuacion">T<sub>c</sub> = T<sub>a</sub> + G · (NOCT − 20) / 800 · (1 − η / τα) &nbsp;&nbsp; P<sub>PV</sub> = P<sub>r</sub> · f<sub>PV</sub> · (G / 1000) · [ 1 + α<sub>P</sub> (T<sub>c</sub> − 25) ]</p>
+        <p class="en-sim">τα = 0,9; f<sub>PV</sub>: factor de reducción (suciedad, cables, sombras); α<sub>P</sub>: coeficiente de temperatura (%/°C). Se conecta al bus DC.</p>
+      </details>
+      <details class="termino"><summary>Conversor DC/AC</summary>
+        <p>Equipo bidireccional que pasa energía entre el bus DC (paneles, baterías, hidrógeno) y el bus AC (carga, aerogeneradores, diésel). Su potencia total limita cuánta energía cruza cada hora y su eficiencia η<sub>con</sub> se aplica en ambos sentidos.</p>
+      </details>
+      <details class="termino"><summary>Electrolizador</summary>
+        <p>Convierte excedentes eléctricos del bus DC en hidrógeno.</p>
+        <p class="ecuacion">E<sub>H₂</sub> = min( η<sub>ele</sub> · E<sub>exc</sub> ; P<sub>ele</sub> )</p>
+      </details>
+      <details class="termino"><summary>Tanque de hidrógeno</summary>
+        <p>Guarda la energía del hidrógeno (kWh). Los tanques parten llenos y no pueden superar su capacidad; lo que no cabe se pierde. El «H₂ sin usar» es la menor energía almacenada del año.</p>
+      </details>
+      <details class="termino"><summary>Celda de combustible</summary>
+        <p>Devuelve al bus DC la energía del hidrógeno cuando falta.</p>
+        <p class="ecuacion">E<sub>FC</sub> = min( η<sub>fc</sub> · E<sub>H₂,sale</sub> ; P<sub>fc</sub> )</p>
+      </details>
+      <details class="termino"><summary>Batería</summary>
+        <p>Almacenamiento eléctrico del bus DC, con eficiencia de carga y de descarga, estado de carga mínimo (SOC<sub>min</sub>), potencia máxima según la tasa C y autodescarga horaria.</p>
+        <p class="ecuacion">P<sub>max</sub> = C · capacidad &nbsp;&nbsp; ciclos/año = E<sub>descargada</sub> / [ capacidad · (1 − SOC<sub>min</sub>) ]</p>
+        <p class="en-sim">Parte llena. Su vida depende de los ciclos (ver «Vida útil»).</p>
+      </details>
+      <details class="termino"><summary>Generador diésel (DG)</summary>
+        <p>Respaldo en el bus AC con seguimiento de carga: enciende las unidades necesarias y cada una funciona al menos a su carga mínima. El consumo sigue la curva lineal de combustible de HOMER:</p>
+        <p class="ecuacion">F = a · P + b · P<sub>nom</sub> &nbsp;(L/h) &nbsp;&nbsp; a = 0,246 L/kWh, b = 0,08145 L/kWh</p>
+      </details>
+    </div>
+
+    <div class="bib-grupo">
+      <h3 class="sub">Despacho</h3>
+      <details class="termino"><summary>Estrategia de despacho</summary>
+        <p>Cada hora: (1) los aerogeneradores atienden la carga en el bus AC; (2) los paneles la complementan a través del conversor; (3) si sobra energía, primero se cargan las baterías y luego el electrolizador produce hidrógeno; (4) si falta, primero se descargan las baterías, luego las celdas de combustible usan el hidrógeno y, al final, los generadores diésel cubren el resto. Sin baterías ni diésel, el despacho es idéntico al del código Python de la tesis.</p>
+      </details>
+    </div>
+
+    <div class="bib-grupo">
+      <h3 class="sub">Recurso</h3>
+      <details class="termino"><summary>ERA5 y series prealmacenadas</summary>
+        <p>ERA5 es el reanálisis horario del clima de Copernicus/ECMWF (0,25°). Se usan la temperatura a 2 m, la presión en superficie, el viento a 10 y 100 m y la radiación global sobre un plano inclinado en la latitud y orientado al norte (GTI).</p>
+      </details>
+      <details class="termino"><summary>Factor de planta</summary>
+        <p class="ecuacion">FP = Σ<sub>t</sub> P<sub>t</sub> / (8760 · P<sub>r</sub>)</p>
+      </details>
+      <details class="termino"><summary>Eje dominante del viento</summary>
+        <p>Dirección en la que llega la mayor parte de la energía del viento a 100 m, ponderando cada hora por v³. Se usan ángulos dobles, porque una fila de aerogeneradores sirve igual con viento de norte que de sur.</p>
+        <p class="ecuacion">θ = ½ · atan2( Σ v³ sen 2φ ; Σ v³ cos 2φ )</p>
+      </details>
+    </div>
+
+    <div class="bib-grupo">
+      <h3 class="sub">Zona y terreno</h3>
+      <details class="termino"><summary>Superficie y elevación de la zona</summary>
+        <p>La superficie del polígono se calcula sobre la esfera terrestre. La elevación media, mínima y máxima sale del modelo Copernicus DEM (90 m) en hasta 100 puntos. La vista 3D usa las Terrain Tiles de AWS.</p>
+      </details>
+      <details class="termino"><summary>Distribución de aerogeneradores</summary>
+        <p>Grilla dentro de la zona con separación s<sub>x</sub>·D en el eje del viento y s<sub>y</sub>·D en la dirección transversal (D: diámetro del rotor), con retiro desde el borde igual a un factor por la altura de punta (h<sub>buje</sub> + D/2). Se prueban filas alineadas y escalonadas, y se elige la que deja más posiciones. Las filas se llenan desde el centro de la zona.</p>
+      </details>
+      <details class="termino"><summary>Filas de paneles y GCR</summary>
+        <p>Los paneles miran al norte con inclinación β (la latitud). La distancia entre filas evita sombras al mediodía del solsticio de invierno, cuando el sol está a la altura α:</p>
+        <p class="ecuacion">α = 90° − |lat| − 23,45° &nbsp;&nbsp; GCR = 1 / ( cos β + sen β / tan α ) &nbsp;&nbsp; A<sub>panel</sub> = A<sub>módulo</sub> / (GCR · aprovechamiento)</p>
+      </details>
+      <details class="termino"><summary>Restricción de terreno</summary>
+        <p class="ecuacion">n<sub>WT</sub> · s<sub>x</sub> s<sub>y</sub> D² + n<sub>PV</sub> · A<sub>panel</sub> ≤ A<sub>zona</sub></p>
+        <p class="en-sim">Si no se cumple, la configuración se trata como no factible, igual que una que no cumple la confiabilidad.</p>
+      </details>
+    </div>
+
+    <div class="bib-grupo">
+      <h3 class="sub">Optimización</h3>
+      <details class="termino"><summary>Variables de decisión y límites</summary>
+        <p>Ocho cantidades enteras: aerogeneradores, paneles, conversores, electrolizadores, tanques, celdas, baterías y generadores diésel. Cada una tiene un mínimo y un máximo; los módulos que no forman parte de la arquitectura quedan en cero.</p>
+      </details>
+      <details class="termino"><summary>Factibilidad y reglas de Deb</summary>
+        <p>Una configuración es factible si cumple la confiabilidad y cabe en la zona. Al comparar dos configuraciones: una factible gana a una no factible; entre factibles gana la de menor objetivo; entre no factibles gana la que menos viola las restricciones. Los tres métodos de la tesis usan, en cambio, una penalización fija (LCOE = 10⁶).</p>
+      </details>
+      <details class="termino"><summary>Métodos de un objetivo</summary>
+        <p><b>Monte Carlo</b>: muestras al azar. <b>Algoritmo genético</b>: selección por torneo, cruce y mutación. <b>Híbrido CS-HS-SA</b>: búsqueda caótica, armónica y recocido simulado. <b>SHADE</b>: evolución diferencial que adapta sus parámetros. <b>PSO</b>, <b>GWO</b>, <b>WOA</b> y <b>EO</b>: enjambres inspirados en la naturaleza. Todos terminan con la mejor configuración factible encontrada.</p>
+      </details>
+      <details class="termino"><summary>Frente de Pareto, dominancia y solución de compromiso</summary>
+        <p>Una configuración <b>domina</b> a otra si no es peor en ningún objetivo y es mejor en al menos uno. El <b>frente de Pareto</b> reúne las configuraciones no dominadas; lo buscan <b>NSGA-II</b> y <b>MOPSO</b>. La <b>solución de compromiso</b> es la más cercana al punto ideal, con cada objetivo normalizado entre su mínimo y su máximo.</p>
+      </details>
     </div>
   </section>
   </div>
@@ -375,7 +572,7 @@
 <footer class="foot">
   <div class="wrap">
     <p><b>Simulador HRES-H2</b> · Ignacio Partarrieu Andrade.</p>
-    <p>Datos: demanda de la localidad remota de ejemplo (datos de terceros, usados con permiso solo dentro de este simulador; no se autoriza su descarga ni redistribución); clima ERA5 de Copernicus/ECMWF y elevación Copernicus DEM vía <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a> (CC BY 4.0); mapas © colaboradores de OpenStreetMap, OpenTopoMap (CC BY-SA) y Esri; perfiles residenciales NREL ResStock (CC BY 4.0). Gráficos con Chart.js (MIT) y mapas con Leaflet (BSD-2).</p>
+    <p>Datos: demanda de la localidad remota de ejemplo (datos de terceros, usados con permiso solo dentro de este simulador; no se autoriza su descarga ni redistribución); clima ERA5 de Copernicus/ECMWF y elevación Copernicus DEM vía <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a> (CC BY 4.0); mapas © colaboradores de OpenStreetMap, OpenTopoMap (CC BY-SA) y Esri; relieve 3D de Terrain Tiles (AWS Open Data; SRTM, GMTED y otros); perfiles residenciales NREL ResStock (CC BY 4.0). Gráficos con Chart.js (MIT), mapas con Leaflet (BSD-2) y vista 3D con three.js (MIT).</p>
   </div>
 </footer>
 </body>

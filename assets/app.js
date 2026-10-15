@@ -1,10 +1,10 @@
 // Página del Simulador HRES-H2: arma el caso con lo que elige la persona, reparte las simulaciones entre
 // Web Workers, ejecuta el método de optimización (uno o varios objetivos) y muestra los resultados.
-import { CATALOGO, MODULOS, NOMBRES, ECONOMIA_TESIS, FUENTES, OBJETIVOS_MO, potenciaPV, potenciaWT, limitesPorDefecto } from "./model.js?v=20261015b";
-import { monteCarlo, genetico, shade, pso, gwo, woa, eo, nsga2, mopso, aptitud, PENALIZACION } from "./optimizers.js?v=20261015b";
-import * as dem from "./demand.js?v=20261015b";
-import { svgDiagrama, svgLayout, descargarSVG, descargarPNG, descargar } from "./diagram.js?v=20261015b";
-import * as zona from "./zona.js?v=20261015b";
+import { CATALOGO, MODULOS, NOMBRES, ECONOMIA_TESIS, FUENTES, OBJETIVOS_MO, potenciaPV, potenciaWT, limitesPorDefecto, flujoCaja, crf, tasaReal } from "./model.js?v=20261015c";
+import { monteCarlo, genetico, shade, pso, gwo, woa, eo, nsga2, mopso, aptitud, PENALIZACION } from "./optimizers.js?v=20261015c";
+import * as dem from "./demand.js?v=20261015c";
+import { svgDiagrama, svgLayout, descargarSVG, descargarPNG, descargar } from "./diagram.js?v=20261015c";
+import * as zona from "./zona.js?v=20261015c";
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -123,7 +123,7 @@ const estado = {
   resultado: null, pareto: null, corriendo: false,
   zona: null,           // { pts, area (m²), centro, elev }
 };
-let mapaZona = null, mapaLayout = null;
+let mapaZona = null, mapaLayout = null, vista3d = null, turno3d = 0;
 const cacheLayout = {};
 let pool = null, detener = false;
 const graficos = {};
@@ -620,7 +620,7 @@ class Pool {
   constructor(n) {
     this.pend = new Map(); this.id = 0;
     this.workers = Array.from({ length: n }, () => {
-      const w = new Worker(new URL("./worker.js?v=20261015b", import.meta.url), { type: "module" });
+      const w = new Worker(new URL("./worker.js?v=20261015c", import.meta.url), { type: "module" });
       w.onmessage = (e) => {
         const p = this.pend.get(e.data.id);
         if (!p) return;
@@ -941,14 +941,6 @@ function mostrarResultados(cfg, r, meta, desplazarA = "#resultados") {
       : `El método no encontró una configuración que cumpla la confiabilidad pedida (${textoConfiabilidad(crit)}). Se muestra la más cercana. Prueba con más generaciones, corridas o muestras, o amplía los límites de búsqueda.`;
   }
 
-  const ref = REF_TESIS[crit.h], box = $("#referencia");
-  if (esCasoTesis() && ref && lole && !crit.usarEnergia && crit.objetivo === "lcoe" && !pen && crit.modo !== "mo" && !cfg[6] && !cfg[7]) {
-    const dif = ((r.lcoe - ref.lcoe) / ref.lcoe) * 100;
-    box.hidden = false;
-    box.textContent = `Mejor resultado de referencia para este caso (h = ${crit.h}): LCOE ${fmt(ref.lcoe, 3)} USD/kWh con el ${ref.metodo} (${ref.cfg.map((v) => fmt(v)).join(" · ")}). ` +
-      `Este resultado: ${fmt(r.lcoe, 4)} USD/kWh, ${Math.abs(dif) < 0.005 ? "igual" : dif < 0 ? `${fmt(-dif, 2)} % menor` : `${fmt(dif, 2)} % mayor`}.`;
-  } else box.hidden = true;
-
   const t = $("#tabla-equipos"); t.replaceChildren();
   const thead = t.createTHead().insertRow();
   for (const c of ["Módulo", "Cantidad", "Capacidad total", "Inversión (USD)", "Costo presente neto (USD)"]) { const th = document.createElement("th"); th.textContent = c; thead.appendChild(th); }
@@ -992,6 +984,7 @@ function mostrarResultados(cfg, r, meta, desplazarA = "#resultados") {
     options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { labels: { boxWidth: 12 } } },
       scales: { x: { ticks: { maxTicksLimit: 12 } }, y: { type: "logarithmic", title: { display: true, text: "kWh por día (escala logarítmica)" } } } },
   });
+  graficoFlujo();
   grafico("graf-costos", {
     type: "doughnut",
     data: { labels: MODULOS.map((m) => NOMBRES[m]), datasets: [{ data: MODULOS.map((m, i) => npcModulo(i, cfg, r)), backgroundColor: MODULOS.map((m) => COLORES[m]) }] },
@@ -1009,7 +1002,10 @@ function renderLayoutResultado(cfg, r, meta) {
   estado.resultado.layoutSvg = null;
   $("#res-layout").hidden = false;
   $$("[data-layout]").forEach((btn) => { btn.disabled = !z || !dist; });
+  $$("#res-layout .btns button[id^='v3-']").forEach((btn) => { btn.disabled = !z || !dist; });
   if (!z || !dist) {
+    turno3d++; vista3d?.destruir(); vista3d = null;
+    $("#layout-3d").replaceChildren(); $("#leyenda-3d").replaceChildren(); $("#layout-3d-estado").textContent = "";
     $("#layout-res").replaceChildren();
     $("#layout-nota").textContent = "Para ver dónde quedan los equipos, dibuja una zona en la pestaña 1 (Zona) y vuelve a simular. El caso de ejemplo (lat. 45°S) no tiene zona en el mapa.";
     return;
@@ -1026,12 +1022,64 @@ function renderLayoutResultado(cfg, r, meta) {
   const svg = svgLayout(geo, { titulo: `Layout del sistema ${nombreArquitectura(arq)} · LCOE ${fmt(r.lcoe, 4)} USD/kWh`, eje: dist.op.eje, pitchM: pitch, leyenda });
   estado.resultado.layoutSvg = svg;
   $("#layout-res").innerHTML = svg;      // SVG armado por el propio sitio (textos escapados)
+  mostrar3D({ pts: z.pts, geo, eje: dist.op.eje, cfg, equipos, pitchM: pitch, beta: p.beta, largoMesa: 2 * Math.sqrt(areaMod * 1.75) });
   const notas = [];
   if (dist.demasiadas && cfg[0]) notas.push("Hay demasiadas posiciones posibles para dibujar los aerogeneradores: aumenta la separación o reduce la zona.");
   else if (cfg[0] > dist.posiciones.length) notas.push(`Solo caben ${fmt(dist.posiciones.length)} de los ${fmt(cfg[0])} aerogeneradores.`);
   if (!geo.completo) notas.push("El campo fotovoltaico no cabe completo en el terreno que dejan libre los aerogeneradores.");
   notas.push("Los aerogeneradores ocupan primero las filas perpendiculares al viento; los paneles se agrupan alrededor del bloque de potencia para acortar el cableado. Es un anteproyecto: el trazado final requiere topografía, accesos y estudio de estelas.");
   $("#layout-nota").textContent = notas.join(" ");
+}
+
+// Vista 3D animada (three.js se carga solo cuando hace falta).
+async function mostrar3D(op) {
+  const turno = ++turno3d;
+  vista3d?.destruir(); vista3d = null;
+  const estado3d = (t) => { if (turno === turno3d) $("#layout-3d-estado").textContent = t; };
+  const ley = $("#leyenda-3d"); ley.replaceChildren();
+  const chip = (color, texto) => { const s = document.createElement("span"), i = document.createElement("i"); i.style.background = color; s.append(i, texto); ley.appendChild(s); };
+  try {
+    const m = await import("./escena3d.js?v=20261015c");
+    chip("#FF8A3D", "Zona");
+    if (op.cfg[0]) chip("#F7F8FA", `Aerogeneradores (${fmt(op.cfg[0])})`);
+    if (op.cfg[1]) chip("#2456A6", `Paneles (${fmt(op.cfg[1])})`);
+    [["con", 2], ["ele", 3], ["ht", 4], ["fc", 5], ["bat", 6], ["dg", 7]].forEach(([k, i]) => { if (op.cfg[i]) chip(m.COLORES_BLOQUE[k], NOMBRES[k]); });
+    const v = await m.crearVista3D($("#layout-3d"), { ...op, alEstado: estado3d });
+    if (turno !== turno3d) { v.destruir(); return; }
+    vista3d = v;
+    $("#v3-girar").textContent = "Pausar giro";
+  } catch (err) {
+    estado3d(`No se pudo armar la vista 3D: ${err.message}. Revisa el plano 2D más abajo.`);
+  }
+}
+
+// Flujo de caja del sistema por año y categoría (como el Cash Flow de HOMER): costos negativos, residual positivo.
+const CATEGORIAS_FC = [["capital", "Capital", "#1F5FAD"], ["reemplazo", "Reemplazo", "#E9A23B"], ["om", "O&M", "#7F8C9D"],
+  ["combustible", "Combustible", "#B5651D"], ["residual", "Residual", "#3FAE6A"]];
+function flujoSistema(cfg, r, equipos, economia) {
+  const N = economia.anios, total = Object.fromEntries(CATEGORIAS_FC.map(([c]) => [c, new Float64Array(N + 1)]));
+  MODULOS.forEach((k, i) => {
+    if (!cfg[i]) return;
+    let dev = equipos[k], anual = 0;
+    if (k === "bat") dev = { ...dev, vu: r.vidaBat ?? dev.vu };
+    if (k === "dg") { dev = { ci: dev.ci, rep: dev.rep, om: 0, vu: r.vidaDg ?? dev.vu }; anual = r.costoDieselAnual / cfg[i]; }
+    const f = flujoCaja(dev, N, anual);
+    for (const [c] of CATEGORIAS_FC) for (let y = 0; y <= N; y++) total[c][y] += f[c][y] * cfg[i];
+  });
+  return { total, df: crf(tasaReal(economia.dn, economia.ie), N).df, N };
+}
+function graficoFlujo() {
+  const res = estado.resultado; if (!res) return;
+  const { total, df, N } = flujoSistema(res.cfg, res.r, res.equipos, res.economia);
+  const desc = $("#fc-modo").value === "descontado", factor = (y) => (desc ? (y ? df[y] : 1) : 1);
+  grafico("graf-flujo", {
+    type: "bar",
+    data: { labels: Array.from({ length: N + 1 }, (_, y) => y), datasets: CATEGORIAS_FC.map(([c, nombre, color]) => ({
+      label: nombre, backgroundColor: color, data: Array.from(total[c], (v, y) => (c === "residual" ? 1 : -1) * v * factor(y)) })) },
+    options: { responsive: true, maintainAspectRatio: false, animation: false, plugins: { legend: { labels: { boxWidth: 12 } },
+      tooltip: { callbacks: { label: (c) => `${c.dataset.label}: ${fmt(c.raw)} USD` } } },
+      scales: { x: { stacked: true, title: { display: true, text: "Año del proyecto" } }, y: { stacked: true, title: { display: true, text: `USD ${desc ? "descontados al año 0" : "nominales (de hoy)"}` } } } },
+  });
 }
 
 function descargarCSV() {
@@ -1135,10 +1183,32 @@ function iniciar() {
     const svg = svgDiagrama({ arq: res.arq, equipos: res.equipos, cfg: res.cfg, titulo: tituloDiagrama(res.r, res.meta) });
     if (b.dataset.descargarRes === "svg") descargarSVG(svg, "diagrama_resultado.svg"); else descargarPNG(svg, "diagrama_resultado.png");
   }));
+  $("#v3-repetir").addEventListener("click", () => vista3d?.repetir());
+  $("#v3-superior").addEventListener("click", () => vista3d?.superior());
+  $("#v3-girar").addEventListener("click", (e) => {
+    if (!vista3d) return;
+    const pausar = e.target.textContent.startsWith("Pausar");
+    vista3d.girar(!pausar); e.target.textContent = pausar ? "Reanudar giro" : "Pausar giro";
+  });
+  $("#v3-video").addEventListener("click", (e) => {
+    if (!vista3d || typeof MediaRecorder === "undefined") return;
+    const b = e.target; b.disabled = true; b.textContent = "Grabando (14 s)…";
+    vista3d.grabar(14, (blob) => { descargar(blob, "layout_3d.webm"); b.disabled = false; b.textContent = "Grabar video (WebM)"; });
+  });
   $$("[data-layout]").forEach((b) => b.addEventListener("click", () => {
     const svg = estado.resultado?.layoutSvg; if (!svg) return;
     if (b.dataset.layout === "svg") descargarSVG(svg, "layout_resultado.svg"); else descargarPNG(svg, "layout_resultado.png");
   }));
+  $("#fc-modo").addEventListener("change", graficoFlujo);
+  // Biblioteca: filtra los términos por texto (sin tildes ni mayúsculas) y abre los que coinciden.
+  const normal = (t) => t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  $("#bib-buscar").addEventListener("input", (e) => {
+    const q = normal(e.target.value.trim());
+    let n = 0;
+    $$("#biblioteca .termino").forEach((d) => { const si = !q || normal(d.textContent).includes(q); d.hidden = !si; d.open = !!q && si; n += si; });
+    $$("#biblioteca .bib-grupo").forEach((g) => { g.hidden = !g.querySelector(".termino:not([hidden])"); });
+    $("#bib-vacio").hidden = n > 0;
+  });
   $("#dl-csv").addEventListener("click", descargarCSV);
   $("#dl-json").addEventListener("click", descargarJSON);
 

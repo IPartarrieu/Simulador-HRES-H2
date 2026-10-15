@@ -140,16 +140,29 @@ export function crf(i, anios) {
   return { coef, df };
 }
 
-// Costo presente neto de una unidad: inversión + reemplazos cada `vu` años (incluido el último año)
-// + operación y mantenimiento anual − valor residual al final del proyecto (ec. 2.2.15 a 2.2.17).
-// `vu` puede no ser entero (baterías y diésel, cuya vida depende del uso): el reemplazo se ubica en el año más cercano.
-export function npcUnidad(dev, df, anios) {
-  const vu = Math.max(1, dev.vu);
-  let npc = dev.ci;
-  for (let k = 1; k * vu <= anios + 1e-9; k++) npc += dev.rep * df[Math.min(anios, Math.max(1, Math.round(k * vu)))];
-  for (let y = 1; y <= anios; y++) npc += (dev.om || 0) * df[y];
-  const resto = anios - vu * Math.floor(anios / vu + 1e-9);
-  npc -= dev.rep * (resto / vu) * df[anios];
+// Flujo de caja nominal (en dólares de hoy) de una unidad, año a año, como en HOMER Pro
+// (net_present_cost.html, salvage_value.html):
+// - capital: inversión en el año 0;
+// - reemplazo: costo de reemplazo cada `vu` años mientras t ≤ N (el año se redondea si `vu` no es entero);
+// - om: operación y mantenimiento al final de cada año (y `anual`, p. ej. combustible, en la misma fecha);
+// - residual (ingreso, año N): S = C_rep · R_rem / R_comp, con R_rep = R_comp · INT(N / R_comp) y
+//   R_rem = R_comp − (N − R_rep): depreciación lineal de la última unidad instalada.
+export function flujoCaja(dev, anios, anual = 0) {
+  const vu = Math.max(1, dev.vu), N = anios;
+  const f = { capital: new Float64Array(N + 1), reemplazo: new Float64Array(N + 1), om: new Float64Array(N + 1), combustible: new Float64Array(N + 1), residual: new Float64Array(N + 1) };
+  f.capital[0] = dev.ci;
+  for (let k = 1; k * vu <= N + 1e-9; k++) f.reemplazo[Math.min(N, Math.max(1, Math.round(k * vu)))] += dev.rep;
+  for (let y = 1; y <= N; y++) { f.om[y] = dev.om || 0; f.combustible[y] = anual; }
+  const rRep = vu * Math.floor(N / vu + 1e-9), rRem = vu - (N - rRep);
+  f.residual[N] = dev.rep * (rRem / vu);
+  return f;
+}
+
+// Costo presente neto de una unidad: valor presente de los costos menos el del valor residual.
+export function npcUnidad(dev, df, anios, anual = 0) {
+  const f = flujoCaja(dev, anios, anual);
+  let npc = f.capital[0];
+  for (let y = 1; y <= anios; y++) npc += (f.reemplazo[y] + f.om[y] + f.combustible[y] - f.residual[y]) * df[y];
   return npc;
 }
 

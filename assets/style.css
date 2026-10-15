@@ -99,11 +99,18 @@ details.more summary, .equipo summary { cursor: pointer; font-size: 14px; font-w
 .chart-box { position: relative; height: 280px; }
 .chart-box.short { height: 170px; margin-top: 12px; }
 .res-diagrama { margin-top: 20px; max-width: 820px; }
-.res-layout { margin-top: 24px; max-width: 900px; }
+.res-layout { margin-top: 24px; max-width: 1000px; }
+.vista3d { position: relative; border-radius: 12px; overflow: hidden; background: #BFD6EE; min-height: 240px; line-height: 0; cursor: grab; }
+.vista3d canvas { display: block; }
+.leyenda3d { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; font-size: 13px; color: var(--ink); }
+.leyenda3d span { display: inline-flex; align-items: center; gap: 6px; }
+.leyenda3d i { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0, 0, 0, .25); }
 .chart-box.conv { border: 1px dashed var(--line); border-radius: 10px; padding: 8px; }
 .placeholder { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; padding: 20px; text-align: center; font-size: 14px; color: var(--muted); pointer-events: none; }
 .charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 24px; margin-top: 24px; }
 .charts .chart-box { height: 300px; padding-bottom: 26px; }
+.charts .chart-box.ancho { grid-column: 1 / -1; height: 340px; }
+select.mini { width: auto; display: inline-block; padding: 2px 6px; font-size: 13px; margin-left: 6px; }
 
 h3.sub { margin: 20px 0 10px; color: var(--ink); font-size: 15.5px; }
 .checks { display: flex; flex-wrap: wrap; gap: 8px 18px; }
@@ -135,6 +142,17 @@ h3.sub { margin: 20px 0 10px; color: var(--ink); font-size: 15.5px; }
 .tabla tfoot td { font-weight: 700; }
 .prose { max-width: 80ch; }
 .prose li { margin-bottom: 6px; }
+
+/* Biblioteca */
+.buscar { display: flex; flex-direction: column; gap: 4px; max-width: 460px; margin-bottom: 8px; }
+.buscar input { font: inherit; font-size: 15px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; }
+.bib-grupo { margin-top: 6px; }
+.termino { border: 1px solid var(--line); border-radius: 10px; margin: 8px 0; background: #FFFFFF; max-width: 90ch; }
+.termino summary { cursor: pointer; padding: 10px 14px; font-weight: 600; font-size: 15px; }
+.termino[open] summary { border-bottom: 1px solid var(--line); background: var(--soft); border-radius: 10px 10px 0 0; }
+.termino > p { margin: 10px 14px; font-size: 14.5px; }
+.ecuacion { font-family: "Cambria Math", "STIX Two Math", Georgia, serif; font-size: 16px; background: var(--accent-soft); padding: 10px 14px; border-radius: 8px; overflow-x: auto; white-space: nowrap; }
+.en-sim { color: var(--muted); font-size: 13.5px !important; }
 
 /* Pie */
 .foot { border-top: 1px solid var(--line); background: #FFFFFF; font-size: 13.5px; color: var(--muted); }

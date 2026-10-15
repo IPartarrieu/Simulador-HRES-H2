@@ -19,7 +19,7 @@ Da vida a la tesis de Magíster en Geofísica de Ignacio Partarrieu Andrade, *Di
 
 ## Modelo
 
-`assets/model.js` reproduce el algoritmo de la tesis (`funciones.py`): en cada hora compara la generación con la demanda (más la reserva operativa), envía los excedentes al electrolizador y a los tanques, cubre los déficits con las celdas de combustible y limita los flujos entre buses con los conversores. La evaluación económica usa el costo presente neto de cada equipo (inversión, reemplazos, operación y mantenimiento y valor residual), el factor de recuperación del capital y el LCOE.
+`assets/model.js` reproduce el algoritmo de la tesis (`funciones.py`): en cada hora compara la generación con la demanda (más la reserva operativa), envía los excedentes al electrolizador y a los tanques, cubre los déficits con las celdas de combustible y limita los flujos entre buses con los conversores. La evaluación económica sigue el flujo de caja de HOMER Pro: inversión en el año 0, reemplazos al cumplirse cada vida útil, O&M y combustible al final de cada año y valor residual por la vida restante (`flujoCaja` en `assets/model.js`); con él se calculan el costo presente neto, el costo anualizado (CRF) y el LCOE. La pestaña «Acerca del simulador» tiene una biblioteca con cada término y ecuación, organizada como el manual de HOMER Pro 3.16.
 
 **Baterías y diésel** (se agregan sin cambiar el despacho de la tesis cuando no están):
 - Orden de despacho: renovables → baterías → hidrógeno → diésel, tanto para guardar excedentes (primero la batería, luego el electrolizador) como para cubrir déficits.
@@ -31,7 +31,7 @@ Cuando el recurso es meteorológico, la potencia de cada equipo se calcula con l
 
 ### Validación
 
-`tests/validar.mjs` compara el motor en JavaScript con el código Python original en siete configuraciones (entre ellas las óptimas del artículo): el LCOE, el LOLE, la energía suministrada y no suministrada, las pérdidas y el hidrógeno final coinciden exactamente. Las baterías y el diésel no existen en el código de la tesis; con 0 unidades de cada uno el resultado es el mismo.
+`tests/validar.mjs` compara el despacho en JavaScript con el código Python original en siete configuraciones (entre ellas las óptimas del artículo): el LOLE, la energía suministrada y no suministrada, las pérdidas y el hidrógeno final coinciden exactamente. Los costos se revisan con las ecuaciones y ejemplos de HOMER (tasa real, factor de descuento, CRF y valor residual); el LCOE difiere del de la tesis porque esta calculaba el valor residual con la vida usada en vez de la restante. Las baterías y el diésel no existen en el código de la tesis; con 0 unidades de cada uno el resultado es el mismo.
 
 `tests/multiobjetivo.mjs` revisa que los frentes de NSGA-II y MOPSO solo tengan soluciones factibles y no dominadas.
 
@@ -61,16 +61,16 @@ PSO, GWO, WOA y EO usan aquí las mismas reglas de factibilidad, población inic
 
 | Método | Mejor LCOE | Media | Peor |
 |---|---|---|---|
-| Monte Carlo | 1,553 | 1,572 | 1,610 |
-| Algoritmo híbrido | 1,515 | 1,590 | 1,727 |
-| Algoritmo genético | 1,469 | 1,497 | 1,534 |
-| **SHADE** | **1,4548** | **1,4548** | **1,4548** |
-| PSO | 1,4549 | 1,4549 | 1,4549 |
-| Lobo gris (GWO) | 1,4549 | 1,4561 | 1,4603 |
-| Ballena (WOA) | 1,499 | 1,774 | 1,926 |
-| Equilibrio (EO) | 1,4549 | 1,4559 | 1,4597 |
+| Monte Carlo | 1,630 | 1,664 | 1,696 |
+| Algoritmo híbrido | 1,622 | 1,698 | 1,816 |
+| Algoritmo genético | 1,572 | 1,595 | 1,664 |
+| **SHADE** | **1,5570** | **1,5570** | **1,5570** |
+| PSO | 1,5570 | 1,5571 | 1,5572 |
+| Lobo gris (GWO) | 1,5579 | 1,5711 | 1,5831 |
+| Ballena (WOA) | 1,565 | 1,844 | 2,004 |
+| Equilibrio (EO) | 1,5573 | 1,5578 | 1,5590 |
 
-(USD/kWh). El artículo reporta 1,469 USD/kWh con el algoritmo genético y 500 000 simulaciones. Con h = 12, SHADE llega a 1,327 USD/kWh (artículo: 1,335).
+(USD/kWh, con el flujo de caja de HOMER). El artículo reporta 1,469 USD/kWh con el algoritmo genético y 500 000 simulaciones, calculado con su propio valor residual; esa misma configuración cuesta 1,572 USD/kWh con el flujo de caja de HOMER.
 
 ```
 node tests/comparar.mjs 0 20000 5     # h, simulaciones por corrida, semillas
