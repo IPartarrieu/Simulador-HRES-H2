@@ -1,9 +1,10 @@
 // Vista 3D animada del layout de un resultado: terreno con su relieve (Terrain Tiles de AWS) cubierto
 // con la imagen satelital (Esri), y encima los aerogeneradores (con las aspas girando), las filas de paneles y
-// el bloque de potencia, en las posiciones de layoutResultado (zona.js). Usa three.js (vendor/three).
+// el bloque de potencia, en las posiciones de layoutResultado (zona.js). Sobre el terreno se puede pintar un mapa
+// (recurso eólico o solar, calculado en zona.js con la grilla `rejilla`). Usa three.js (vendor/three).
 import * as THREE from "../vendor/three/three.module.min.js";
 import { OrbitControls } from "../vendor/three/OrbitControls.js";
-import { proyeccion, centro } from "./zona.js?v=20261015e";
+import { proyeccion, centro } from "./zona.js?v=20261015f";
 
 const N = 64;                                  // grilla de elevación N × N
 const cacheTerreno = new Map();
@@ -47,7 +48,15 @@ async function elevaciones(puntos, caja) {
   // Píxeles sin dato (fuera de una tesela o con valores imposibles en Chile) → mediana de la grilla.
   const validos = h.filter((v) => v > -500 && v < 7000).sort((a, b) => a - b);
   const mediana = validos.length ? validos[Math.floor(validos.length / 2)] : 0;
-  return h.map((v) => (v > -500 && v < 7000 ? v : mediana));
+  const e = h.map((v) => (v > -500 && v < 7000 ? v : mediana));
+  // Picos aislados (píxeles erróneos en el borde de una tesela): más de 150 m sobre o bajo la mediana de sus vecinos.
+  return e.map((v, k) => {
+    const i = Math.floor(k / N), j = k % N, vec = [];
+    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) if ((a || b) && i + a >= 0 && i + a < N && j + b >= 0 && j + b < N) vec.push(e[(i + a) * N + j + b]);
+    vec.sort((x, y) => x - y);
+    const med = vec[Math.floor(vec.length / 2)];
+    return Math.abs(v - med) > 150 ? med : v;
+  });
 }
 
 // Imagen satelital (Esri) de la caja, con la zona resaltada: afuera queda más oscuro.
@@ -77,6 +86,16 @@ async function terreno(pts) {
   const t = { x0, x1, y0, y1, elev, imagen };
   cacheTerreno.set(clave, t);
   return t;
+}
+
+// Paletas de los mapas de recurso (de menos a más).
+export const PALETAS = {
+  viento: ["#2C7BB6", "#00A6CA", "#00CCBC", "#90EB9D", "#FFFF8C", "#F9D057", "#F29E2E", "#E76818", "#D7191C"],
+  solar: ["#1B0C41", "#4A0C6B", "#781C6D", "#A52C60", "#CF4446", "#ED6925", "#FB9B06", "#F7D13D", "#FCFFA4"],
+};
+function colorEn(paleta, u) {
+  const x = lim(u, 0, 1) * (paleta.length - 1), i = Math.min(paleta.length - 2, Math.floor(x));
+  return new THREE.Color(paleta[i]).lerp(new THREE.Color(paleta[i + 1]), x - i);
 }
 
 /* ---------- Modelos ---------- */
@@ -256,7 +275,34 @@ export async function crearVista3D(contenedor, op) {
   raf = requestAnimationFrame(cuadro);
   op.alEstado?.(`Relieve con exageración vertical ×${exag}${kEq > 1 ? `; aerogeneradores y bloque de potencia dibujados ×${kEq} para que se vean` : ""}. Arrastra para girar y usa la rueda para acercar.`);
 
+  // Mapa sobre el terreno: la grilla de valores se pinta suavizada y semitransparente sobre la imagen satelital.
+  const mapaOriginal = matT.map;
   const api = {
+    rejilla: { x0: t.x0, x1: t.x1, y0: t.y0, y1: t.y1, n: N, elev: t.elev },
+    capa(valores, paleta, rango = null) {
+      if (matT.map !== mapaOriginal) matT.map.dispose();
+      if (!valores) { matT.map = mapaOriginal; matT.color.set(mapaOriginal ? "#FFFFFF" : "#8FA86B"); matT.needsUpdate = true; return null; }
+      let { min, max } = rango || { min: Infinity, max: -Infinity };
+      if (!rango) for (const v of valores) { min = Math.min(min, v); max = Math.max(max, v); }
+      if (max - min < 1e-6 * Math.max(1, Math.abs(max))) { min -= 0.5; max += 0.5; }
+      const n = Math.round(Math.sqrt(valores.length));
+      const chico = document.createElement("canvas"); chico.width = chico.height = n;
+      const cc = chico.getContext("2d"), img = cc.createImageData(n, n);
+      valores.forEach((v, k) => {
+        const c = colorEn(PALETAS[paleta], (v - min) / (max - min));
+        img.data.set([c.r * 255, c.g * 255, c.b * 255, 255], k * 4);
+      });
+      cc.putImageData(img, 0, 0);
+      const lienzo = document.createElement("canvas");
+      lienzo.width = t.imagen?.width || 1024; lienzo.height = t.imagen?.height || 1024;
+      const ctx = lienzo.getContext("2d");
+      if (t.imagen) ctx.drawImage(t.imagen, 0, 0);
+      ctx.globalAlpha = t.imagen ? 0.72 : 1; ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(chico, 0, 0, lienzo.width, lienzo.height);
+      const tex = new THREE.CanvasTexture(lienzo); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 8;
+      matT.map = tex; matT.color.set("#FFFFFF"); matT.needsUpdate = true;
+      return { min, max };
+    },
     repetir() { t0 = performance.now(); intro = true; },
     girar(si) { controles.autoRotate = si; },
     superior() { intro = false; camara.position.set(foco.x, foco.y + R * 1.3, foco.z + 0.01); controles.target.copy(foco); controles.update(); },

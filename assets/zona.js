@@ -5,7 +5,7 @@
 // ponytail: rectángulo que cubre las cuatro regiones, no su límite exacto; usar un GeoJSON regional si hace falta precisión.
 export const REGION = { latMin: -39.7, latMax: -34.6, lonMin: -74.0, lonMax: -70.3 };
 export const AREA_MAX_KM2 = 25;          // límite para que la zona sea un terreno, no una comuna entera
-import { potenciaWT } from "./model.js?v=20261015e";
+import { potenciaWT, vientoBuje } from "./model.js?v=20261015f";
 
 const R = 6378137;
 const rad = (g) => (g * Math.PI) / 180, grados = (r) => (r * 180) / Math.PI;
@@ -122,7 +122,7 @@ function cieloDespejado(lat, beta, dd, dh) {
     const dni = 1367 * Math.pow(0.7, Math.pow(1 / Math.sin(s.alt), 0.678));
     const cosi = Math.sin(s.alt) * Math.cos(beta) + Math.cos(s.alt) * Math.sin(beta) * Math.cos(s.az);
     const haz = dni * Math.max(0, cosi);
-    out.push({ ...s, haz, total: haz + (0.1 * dni * Math.sin(s.alt) * (1 + Math.cos(beta))) / 2 });
+    out.push({ ...s, dni, haz, total: haz + (0.1 * dni * Math.sin(s.alt) * (1 + Math.cos(beta))) / 2 });
   }
   return out;
 }
@@ -255,16 +255,18 @@ const MAX_CAND = 600, MAX_PARQUE = 150, ALCANCE = 50;   // posiciones evaluadas,
 // Rosa de vientos y potencia de una unidad con su viento reducido en δ: g[s][k] = Σ horas del sector s de
 // P(v·(1 − k·0,01)). Con dirección horaria (ERA5 a 100 m) cada hora cae en su sector; sin ella, la rosa son dos
 // lóbulos opuestos (von Mises en ángulos dobles) centrados en el eje dominante, con su concentración.
-function tablaEstela(wt, clima, eje) {
+function rosa(clima, eje) {
   const n = clima.v10_ms.length, dir = clima.dir100_deg;
   const sec = dir && dir.length >= n ? Uint8Array.from({ length: n }, (_, t) => Math.floor((((dir[t] + 5) % 360) + 360) % 360 / 10) % NSEC) : null;
-  let w = null;
-  if (!sec) {
-    const c = Math.min(0.99, clima.concentracion_viento ?? 0.5);
-    const k = c < 0.53 ? 2 * c + c ** 3 + (5 * c ** 5) / 6 : c < 0.85 ? -0.4 + 1.39 * c + 0.43 / (1 - c) : 1 / (c ** 3 - 4 * c * c + 3 * c);
-    w = Array.from({ length: NSEC }, (_, s) => Math.exp(k * Math.cos(2 * rad(10 * s - eje))));
-    const sw = w.reduce((a, b) => a + b, 0); w = w.map((x) => x / sw);
-  }
+  if (sec) return { sec, w: null };
+  const c = Math.min(0.99, clima.concentracion_viento ?? 0.5);
+  const k = c < 0.53 ? 2 * c + c ** 3 + (5 * c ** 5) / 6 : c < 0.85 ? -0.4 + 1.39 * c + 0.43 / (1 - c) : 1 / (c ** 3 - 4 * c * c + 3 * c);
+  const w = Array.from({ length: NSEC }, (_, s) => Math.exp(k * Math.cos(2 * rad(10 * s - eje))));
+  const sw = w.reduce((a, b) => a + b, 0);
+  return { sec, w: w.map((x) => x / sw) };
+}
+function tablaEstela(wt, clima, eje) {
+  const n = clima.v10_ms.length, { sec, w } = rosa(clima, eje);
   const g = new Float64Array(NSEC * NDEF);
   for (let k = 0; k < NDEF; k++) {
     const p = potenciaWT(wt, clima.v10_ms, clima.v100_ms, clima.temp_c, clima.presion_hpa, 1 - k * PASO_DEF);
@@ -369,6 +371,88 @@ export function layoutResultado(pts, { posiciones, nWt, areaPv, hub = 0, beta = 
   const sombraPv = elegidas.length ? elegidas.reduce((a, i) => a + Math.min(1, perd[i]), 0) / elegidas.length : 0;
   return { poli: z.poli, turb, pv: elegidas.map((i) => z.celdas[i]), lado: z.lado, bloque: bloque >= 0 ? z.celdas[bloque] : z.c, D: op.D, sombraPv,
     completo: elegidas.length * z.lado * z.lado >= areaPv - 1e-6 };
+}
+
+/* ---------- Mapas de recurso sobre el terreno (vista 3D) ---------- */
+// rej: grilla n × n de la vista 3D en metros locales (filas de norte a sur, columnas de oeste a este) con su elevación.
+const puntosRejilla = ({ x0, x1, y0, y1, n }) => Array.from({ length: n * n }, (_, k) => [x0 + ((k % n) / (n - 1)) * (x1 - x0), y1 - (Math.floor(k / n) / (n - 1)) * (y1 - y0)]);
+
+// Viento medio anual a la altura del buje (m/s) con las estelas de los aerogeneradores instalados: en cada sector
+// de la rosa, el déficit de Jensen de todas las estelas que pasan por el punto (suma en cuadratura).
+// ponytail: sin efecto del relieve sobre el viento (lomas, valles); para eso hace falta un modelo de flujo (WAsP, CFD).
+export function mapaViento(rej, { turb, D, hub, clima, eje }) {
+  const n = clima.v10_ms.length, { sec, w } = rosa(clima, eje), V = new Float64Array(NSEC);
+  let tot = 0;
+  for (let t = 0; t < n; t++) { const v = vientoBuje(hub, clima.v10_ms, clima.v100_ms, t); tot += v; if (sec) V[sec[t]] += v; }
+  if (!sec) for (let s = 0; s < NSEC; s++) V[s] = w[s] * tot;
+  const R = D / 2, A = 1 - Math.sqrt(1 - CT), d2 = new Float64Array(NSEC);
+  const dirs = Array.from({ length: NSEC * 3 }, (_, q) => { const th = rad(10 * (Math.floor(q / 3) + (q % 3) / 3 - 1 / 3)); return [-Math.sin(th), -Math.cos(th)]; });
+  return Float32Array.from(puntosRejilla(rej), ([x, y]) => {
+    d2.fill(0);
+    for (const [tx, ty] of turb) {
+      const dx = x - tx, dy = y - ty;
+      if (Math.hypot(dx, dy) > ALCANCE * D) continue;
+      for (let s = 0; s < NSEC; s++) {
+        let d = 0;
+        for (let o = 0; o < 3; o++) {
+          const [fx, fy] = dirs[s * 3 + o], xx = dx * fx + dy * fy;
+          if (xx <= 0) continue;
+          const rw = R + K_ESTELA * xx;
+          d += (A * (R / rw) ** 2 * solape(R, rw, Math.abs(dx * fy - dy * fx))) / (Math.PI * R * R) / 3;
+        }
+        d2[s] += d * d;
+      }
+    }
+    let m = 0;
+    for (let s = 0; s < NSEC; s++) m += V[s] * (1 - Math.sqrt(d2[s]));
+    return m / n;
+  });
+}
+
+// Radiación solar anual sobre el suelo (kWh/m²·año): pendiente y orientación del relieve, sombra del propio relieve
+// (horizonte en 16 direcciones dentro de la grilla) y de los aerogeneradores. Se calcula con cielo despejado y se
+// escala por la nubosidad de la serie: kc = radiación anual de la serie sobre el panel / la de cielo despejado.
+// ponytail: el horizonte solo ve el relieve de la grilla (la zona y su margen); cerros más lejanos no se consideran.
+export function mapaSolar(rej, { lat, beta, gti, turb, hub, D }) {
+  const { x0, x1, y0, y1, n, elev } = rej, ex = (x1 - x0) / (n - 1), ey = (y1 - y0) / (n - 1), pts = puntosRejilla(rej);
+  const soles = cieloDespejado(lat, rad(beta), 5, 0.5), paso = (5 * 0.5) / 1000;            // W/m² → kWh/m² por muestra
+  const kc = gti ? gti.reduce((a, b) => a + b, 0) / 1000 / (soles.reduce((a, s) => a + s.total, 0) * paso) : 1;
+  const e = (i, j) => elev[Math.max(0, Math.min(n - 1, i)) * n + Math.max(0, Math.min(n - 1, j))];
+  const NAZ = 16, horiz = new Float32Array(n * n * NAZ);
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) for (let a = 0; a < NAZ; a++) {
+    const az = (2 * Math.PI * a) / NAZ, sx = Math.sin(az), sy = Math.cos(az);
+    let h = 0;
+    for (let k = 1; k < n; k++) {
+      const jj = Math.round(j + (k * sx * Math.min(ex, ey)) / ex), ii = Math.round(i - (k * sy * Math.min(ex, ey)) / ey);
+      if (ii < 0 || jj < 0 || ii >= n || jj >= n) break;
+      h = Math.max(h, Math.atan2(e(ii, jj) - e(i, j), k * Math.min(ex, ey)));
+    }
+    horiz[(i * n + j) * NAZ + a] = h;
+  }
+  const sTurb = new Float64Array(n * n);
+  if (turb.length) {
+    const ss = solesSombra(lat, rad(beta));
+    for (const t of turb) for (const [k, p] of sombraDe(t, pts, ss, { hub, D, lado: Math.min(ex, ey) })) sTurb[k] += p;
+  }
+  return Float32Array.from(pts, (_, k) => {
+    const i = Math.floor(k / n), j = k % n;
+    const gx = (e(i, j + 1) - e(i, j - 1)) / (2 * ex), gy = (e(i - 1, j) - e(i + 1, j)) / (2 * ey), nz = 1 / Math.hypot(gx, gy, 1);
+    let tot = 0;
+    for (const s of soles) {
+      const ca = Math.cos(s.alt), cosi = (-gx * ca * Math.sin(s.az) - gy * ca * Math.cos(s.az) + Math.sin(s.alt)) * nz;
+      const a = Math.round((s.az / (2 * Math.PI)) * NAZ) % NAZ, visible = s.alt > horiz[k * NAZ + a];
+      tot += (visible ? s.dni * Math.max(0, cosi) : 0) + (0.1 * s.dni * Math.sin(s.alt) * (1 + nz)) / 2;
+    }
+    return tot * paso * kc * (1 - Math.min(1, sTurb[k]));
+  });
+}
+
+// Mínimo y máximo de un mapa dentro de la zona (poli en metros locales), para la escala de colores.
+export function rangoEnZona(rej, valores, poli) {
+  const poliYX = poli.map(([x, y]) => [y, x]);
+  let min = Infinity, max = -Infinity;
+  puntosRejilla(rej).forEach(([x, y], k) => { if (dentro([y, x], poliYX)) { min = Math.min(min, valores[k]); max = Math.max(max, valores[k]); } });
+  return Number.isFinite(min) ? { min, max } : null;
 }
 
 // Mapa de solo lectura con la zona y la distribución de los aerogeneradores (usados en relleno, libres en blanco).

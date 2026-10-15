@@ -114,13 +114,18 @@ export function potenciaPV(pv, gti, tempC) {
 
 // Aerogenerador (ec. 2.2.4 a 2.2.6): viento a la altura del buje (ley potencial con el perfil 10-100 m de cada hora),
 // curva lineal entre la velocidad de arranque y la nominal, y corrección por densidad del aire.
+// Viento a la altura del buje en la hora t (ley potencial con el exponente de esa hora).
+export function vientoBuje(hub, v10, v100, t) {
+  let a = 1 / 7;
+  if (v10[t] > 0.5 && v100[t] > 0.5) a = Math.min(0.6, Math.max(0, Math.log(v100[t] / v10[t]) / Math.log(10)));
+  return v10[t] > 0 ? v10[t] * Math.pow(hub / 10, a) : 0;
+}
+
 // f: fracción del viento que llega (1 − déficit por estela).
 export function potenciaWT(wt, v10, v100, tempC, presionHpa, f = 1) {
   const out = new Float64Array(v10.length);
   for (let t = 0; t < v10.length; t++) {
-    let a = 1 / 7;
-    if (v10[t] > 0.5 && v100[t] > 0.5) a = Math.min(0.6, Math.max(0, Math.log(v100[t] / v10[t]) / Math.log(10)));
-    const v = v10[t] > 0 ? f * v10[t] * Math.pow(wt.hub / 10, a) : 0;
+    const v = f * vientoBuje(wt.hub, v10, v100, t);
     let p = 0;
     if (v > wt.vcin && v < wt.vr) p = wt.pr * (v - wt.vcin) / (wt.vr - wt.vcin);
     else if (v >= wt.vr && v < wt.vcout) p = wt.pr;

@@ -9,10 +9,10 @@
 <meta name="description" content="Simulador y optimizador del dimensionamiento de un sistema híbrido de energías renovables (eólica y solar) con almacenamiento de energía en forma de hidrógeno, para zonas del centro-sur de Chile.">
 <link rel="icon" href="assets/icono.svg" type="image/svg+xml">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="assets/style.css?v=20261015e">
+<link rel="stylesheet" href="assets/style.css?v=20261015f">
 <script src="vendor/chart.umd.min.js" defer></script>
 <script src="vendor/leaflet/leaflet.js" defer></script>
-<script type="module" src="assets/app.js?v=20261015e"></script>
+<script type="module" src="assets/app.js?v=20261015f"></script>
 </head>
 <body>
 <header class="top">
@@ -336,7 +336,15 @@
         <button class="btn btn-small" type="button" id="v3-girar">Pausar giro</button>
         <button class="btn btn-small" type="button" id="v3-superior">Vista superior</button>
         <button class="btn btn-small" type="button" id="v3-video">Grabar video (WebM)</button>
+        <label class="capa3d">Capa sobre el terreno
+          <select id="v3-capa" class="mini">
+            <option value="">Imagen satelital</option>
+            <option value="viento">Recurso eólico</option>
+            <option value="solar">Recurso solar</option>
+          </select>
+        </label>
       </div>
+      <div class="escala3d" id="v3-escala" hidden><span id="v3-escala-titulo"></span><div><b id="v3-min"></b><i id="v3-barra"></i><b id="v3-max"></b></div><p class="fine" id="v3-escala-nota"></p></div>
       <p class="fine" id="layout-3d-estado"></p>
       <details class="more">
         <summary>Plano 2D del layout</summary>
@@ -561,6 +569,13 @@
       <details class="termino"><summary>Sombra de los aerogeneradores sobre los paneles</summary>
         <p>La torre proyecta una franja de sombra y el rotor, al girar, tapa en promedio su solidez (alrededor de 6 % del área barrida). Para cada celda del campo solar se suma, a lo largo del año, la radiación directa que tapan los aerogeneradores cercanos, con la sombra del buje a la distancia h<sub>buje</sub>/tan α<sub>sol</sub> en dirección opuesta al sol (hacia el sur).</p>
         <p class="en-sim">Las celdas que pierden más de 0,5 % al año quedan para el final: el campo solar se arma primero en terreno sin sombra. Antes de optimizar se calcula una tabla con la pérdida media del campo solar para cada número de aerogeneradores (hasta 150) y de paneles, y cada simulación multiplica la producción FV por (1 − pérdida). Así el optimizador ve que agregar aerogeneradores sombrea paneles, y que agregar paneles los obliga a usar terreno con sombra cuando se acaba el libre.</p>
+      </details>
+      <details class="termino"><summary>Mapas de recurso en la vista 3D</summary>
+        <p><b>Recurso eólico:</b> velocidad media anual a la altura del buje en cada punto, con la serie de viento, su rosa de vientos y el déficit de las estelas de los aerogeneradores instalados (mismo modelo de Jensen de la simulación):</p>
+        <p class="ecuacion">v̄(p) = (1/N) Σ<sub>s</sub> V<sub>s</sub> · (1 − δ<sub>s</sub>(p)) &nbsp;&nbsp; V<sub>s</sub> = Σ<sub>t∈s</sub> v<sub>buje,t</sub></p>
+        <p><b>Recurso solar:</b> radiación anual sobre el suelo según la pendiente y la orientación del relieve (Terrain Tiles), la sombra del relieve cercano (horizonte en 16 direcciones) y la de los aerogeneradores. Se calcula con cielo despejado y se escala por la nubosidad de la serie:</p>
+        <p class="ecuacion">cos θ = n̂ · ŝ &nbsp;&nbsp; H(p) = k<sub>c</sub> · Σ [ DNI · máx(0, cos θ) · 1<sub>sol sobre el horizonte</sub> + G<sub>dif</sub> (1 + cos pendiente)/2 ] &nbsp;&nbsp; k<sub>c</sub> = Σ GTI<sub>serie</sub> / Σ GTI<sub>despejado</sub></p>
+        <p class="en-sim">La escala de colores va del mínimo al máximo dentro de la zona. El mapa eólico no incluye el efecto del relieve sobre el viento, porque la serie es de un solo punto.</p>
       </details>
       <details class="termino"><summary>Terreno compartido</summary>
         <p>En un parque híbrido los paneles pueden ocupar el espacio entre los aerogeneradores, que solo necesitan un círculo libre alrededor de la torre para la fundación, la plataforma de la grúa y el acceso (por defecto, un diámetro de rotor). La restricción de terreno pasa a ser:</p>

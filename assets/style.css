@@ -105,6 +105,11 @@ details.more summary, .equipo summary { cursor: pointer; font-size: 14px; font-w
 .leyenda3d { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; font-size: 13px; color: var(--ink); }
 .leyenda3d span { display: inline-flex; align-items: center; gap: 6px; }
 .leyenda3d i { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0, 0, 0, .25); }
+.capa3d { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink); }
+.escala3d { margin-top: 10px; font-size: 13px; color: var(--ink); }
+.escala3d > div { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+.escala3d i { flex: 1; max-width: 360px; height: 12px; border-radius: 3px; border: 1px solid rgba(0, 0, 0, .25); }
+.escala3d b { font-weight: 600; font-variant-numeric: tabular-nums; }
 .chart-box.conv { border: 1px dashed var(--line); border-radius: 10px; padding: 8px; }
 .placeholder { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; padding: 20px; text-align: center; font-size: 14px; color: var(--muted); pointer-events: none; }
 .charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 28px 24px; margin-top: 24px; }

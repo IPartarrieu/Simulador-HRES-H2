@@ -1,10 +1,10 @@
 // Página del Simulador HRES-H2: arma el caso con lo que elige la persona, reparte las simulaciones entre
 // Web Workers, ejecuta el método de optimización (uno o varios objetivos) y muestra los resultados.
-import { CATALOGO, MODULOS, NOMBRES, ECONOMIA_TESIS, FUENTES, OBJETIVOS_MO, potenciaPV, potenciaWT, limitesPorDefecto, flujoCaja, crf, tasaReal } from "./model.js?v=20261015e";
-import { monteCarlo, genetico, shade, pso, gwo, woa, eo, nsga2, mopso, aptitud, PENALIZACION } from "./optimizers.js?v=20261015e";
-import * as dem from "./demand.js?v=20261015e";
-import { svgDiagrama, svgLayout, descargarSVG, descargarPNG, descargar } from "./diagram.js?v=20261015e";
-import * as zona from "./zona.js?v=20261015e";
+import { CATALOGO, MODULOS, NOMBRES, ECONOMIA_TESIS, FUENTES, OBJETIVOS_MO, potenciaPV, potenciaWT, limitesPorDefecto, flujoCaja, crf, tasaReal } from "./model.js?v=20261015f";
+import { monteCarlo, genetico, shade, pso, gwo, woa, eo, nsga2, mopso, aptitud, PENALIZACION } from "./optimizers.js?v=20261015f";
+import * as dem from "./demand.js?v=20261015f";
+import { svgDiagrama, svgLayout, descargarSVG, descargarPNG, descargar } from "./diagram.js?v=20261015f";
+import * as zona from "./zona.js?v=20261015f";
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -640,7 +640,7 @@ class Pool {
   constructor(n) {
     this.pend = new Map(); this.id = 0;
     this.workers = Array.from({ length: n }, () => {
-      const w = new Worker(new URL("./worker.js?v=20261015e", import.meta.url), { type: "module" });
+      const w = new Worker(new URL("./worker.js?v=20261015f", import.meta.url), { type: "module" });
       w.onmessage = (e) => {
         const p = this.pend.get(e.data.id);
         if (!p) return;
@@ -1064,6 +1064,36 @@ function renderLayoutResultado(cfg, r, meta) {
   $("#layout-nota").textContent = notas.join(" ");
 }
 
+// Mapa de recurso sobre el terreno de la vista 3D (se calcula una vez por vista y capa).
+let datosMapa = null;
+const CAPAS = {
+  viento: { titulo: "Viento medio anual a la altura del buje (m/s), con las estelas de los aerogeneradores", unidad: "m/s", dec: 2,
+    nota: "Velocidad media a la altura del buje según la serie de viento y su rosa de vientos, menos el déficit de las estelas (Jensen). No incluye el efecto del relieve sobre el viento: la serie es de un solo punto." },
+  solar: { titulo: "Radiación solar anual sobre el suelo (kWh/m²·año)", unidad: "kWh/m²", dec: 0,
+    nota: "Según la pendiente y orientación del terreno (las laderas al norte reciben más), la sombra del relieve cercano y de los aerogeneradores, con la nubosidad de la serie. Los paneles, inclinados en la latitud, reciben más que el suelo." },
+};
+function capa3d() {
+  const tipo = $("#v3-capa").value, d = datosMapa, v = vista3d;
+  $("#v3-escala").hidden = true;
+  if (!v || !d) return;
+  if (!tipo || !d.clima) {
+    v.capa(null);
+    if (tipo) { $("#v3-escala-titulo").textContent = "El recurso elegido no tiene series de viento y radiación para el mapa."; $("#v3-escala").hidden = false; }
+    return;
+  }
+  const wt = d.equipos.wt;
+  const rej = tipo === "viento" ? { ...v.rejilla, n: 160 } : v.rejilla;    // el viento, más fino: las estelas son angostas
+  d.mapas[tipo] ??= tipo === "viento"
+    ? zona.mapaViento(rej, { turb: d.geo.turb, D: wt.rotor, hub: wt.hub, clima: d.clima, eje: d.eje })
+    : zona.mapaSolar(rej, { lat: zona.centro(d.pts)[0], beta: d.beta, gti: d.clima.gti_wm2, turb: d.geo.turb, hub: wt.hub, D: wt.rotor });
+  const r = v.capa(d.mapas[tipo], tipo, zona.rangoEnZona(rej, d.mapas[tipo], d.geo.poli)), c = CAPAS[tipo];
+  $("#v3-escala-titulo").textContent = `${c.titulo}. Escala dentro de la zona:`;
+  $("#v3-min").textContent = `${fmt(r.min, c.dec)} ${c.unidad}`; $("#v3-max").textContent = `${fmt(r.max, c.dec)} ${c.unidad}`;
+  $("#v3-barra").style.background = `linear-gradient(90deg, ${v.paletas[tipo].join(", ")})`;
+  $("#v3-escala-nota").textContent = c.nota; $("#v3-escala-nota").className = "fine";
+  $("#v3-escala").hidden = false;
+}
+
 // Vista 3D animada (three.js se carga solo cuando hace falta).
 async function mostrar3D(op) {
   const turno = ++turno3d;
@@ -1072,15 +1102,17 @@ async function mostrar3D(op) {
   const ley = $("#leyenda-3d"); ley.replaceChildren();
   const chip = (color, texto) => { const s = document.createElement("span"), i = document.createElement("i"); i.style.background = color; s.append(i, texto); ley.appendChild(s); };
   try {
-    const m = await import("./escena3d.js?v=20261015e");
+    const m = await import("./escena3d.js?v=20261015f");
     chip("#FF8A3D", "Zona");
     if (op.cfg[0]) chip("#F7F8FA", `Aerogeneradores (${fmt(op.cfg[0])})`);
     if (op.cfg[1]) chip("#2456A6", `Paneles (${fmt(op.cfg[1])})`);
     [["con", 2], ["ele", 3], ["ht", 4], ["fc", 5], ["bat", 6], ["dg", 7]].forEach(([k, i]) => { if (op.cfg[i]) chip(m.COLORES_BLOQUE[k], NOMBRES[k]); });
     const v = await m.crearVista3D($("#layout-3d"), { ...op, alEstado: estado3d });
     if (turno !== turno3d) { v.destruir(); return; }
-    vista3d = v;
+    vista3d = v; vista3d.paletas = m.PALETAS;
+    datosMapa = { ...op, clima: estado.recurso === "tesis" ? (await dem.datosEjemplo()).era5 : await climaActual(), mapas: {} };
     $("#v3-girar").textContent = "Pausar giro";
+    capa3d();
   } catch (err) {
     estado3d(`No se pudo armar la vista 3D: ${err.message}. Revisa el plano 2D más abajo.`);
   }
@@ -1217,6 +1249,7 @@ function iniciar() {
     if (b.dataset.descargarRes === "svg") descargarSVG(svg, "diagrama_resultado.svg"); else descargarPNG(svg, "diagrama_resultado.png");
   }));
   $("#v3-repetir").addEventListener("click", () => vista3d?.repetir());
+  $("#v3-capa").addEventListener("change", capa3d);
   $("#v3-superior").addEventListener("click", () => vista3d?.superior());
   $("#v3-girar").addEventListener("click", (e) => {
     if (!vista3d) return;
