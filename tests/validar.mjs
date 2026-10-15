@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import { decodificarSerie } from "../assets/codec.js";
 import { CATALOGO, ECONOMIA_TESIS, prepararCaso, simular, crf, tasaReal, npcUnidad, potenciaWT } from "../assets/model.js";
-import { estelaParque, eficienciaParque, distribucionPaneles, sombraFilas, proyeccion } from "../assets/zona.js";
+import { estelaParque, eficienciaParque, distribucionPaneles, sombraFilas, proyeccion, interaccionPV, distribuirAerogeneradores } from "../assets/zona.js";
 
 const datos = JSON.parse(readFileSync(new URL("../data/ejemplo_45s_2018.json", import.meta.url)));
 datos.demanda_kw = decodificarSerie(datos.demanda_codificada);
@@ -64,6 +64,21 @@ const otros = [
   ["sombra entre filas a −37°: entre 0,5 y 4 %", +(sp.sombra > 0.005 && sp.sombra < 0.04), 1, 0],
   ["sombra entre filas: con la mitad de separación, más pérdida", +(sombraFilas(-37, b, sp.gcr * 1.5) > sp.sombra), 1, 0],
 ];
+// Interacción paneles-aerogeneradores: sin aerogeneradores no hay sombra; con la zona chica llena de ellos,
+// el campo solar que comparte el terreno sí la recibe, y la simulación la descuenta de la energía FV.
+const chica = [[-37.003, -72.003], [-37.003, -71.997], [-36.997, -71.997], [-36.997, -72.003]];
+const opI = { D, sx: 7, sy: 4, eje: 0, compartir: true, libre: 1, hub: wt.hub, beta: 37, nMax: 150 };
+const posI = distribuirAerogeneradores(chica, opI).posiciones, inter = interaccionPV(chica, posI, opI);
+const filaN = (n, k) => inter.tabla[n * inter.K + k - 1];
+const casoI = prepararCaso({ demanda: datos.demanda_kw, wtKw: datos.tesis.wt_kw, pvKw: datos.tesis.pv_kw, equipos, economia: ECONOMIA_TESIS,
+  sombraWt: { ...inter, m2Panel: inter.m2Celda } });
+const pvTotal = (c) => simular(c, [inter.nMax, inter.K, 0, 0, 0, 0], true).series.pv.reduce((x, y) => x + y, 0);
+const pvSin = pvTotal(caso), pvCon = pvTotal(casoI);
+otros.push(
+  ["interacción: 0 aerogeneradores, 0 sombra", Math.max(...inter.tabla.slice(0, inter.K)), 0, 0],
+  ["interacción: zona llena, sombra > 0", +(filaN(inter.nMax, inter.K) > 0), 1, 0],
+  ["interacción: la simulación descuenta la sombra de la energía FV", pvCon / pvSin, 1 - filaN(inter.nMax, inter.K), 1e-6],
+);
 for (const [nombre, a, e, tol] of otros) {
   const ok = cerca(a, e, tol); fallas += ok ? 0 : 1;
   console.log(`${ok ? "✓" : "✗"} ${nombre} → ${a.toFixed(4)} (esperado ${e.toFixed(4)})`);

@@ -1,10 +1,10 @@
 // Página del Simulador HRES-H2: arma el caso con lo que elige la persona, reparte las simulaciones entre
 // Web Workers, ejecuta el método de optimización (uno o varios objetivos) y muestra los resultados.
-import { CATALOGO, MODULOS, NOMBRES, ECONOMIA_TESIS, FUENTES, OBJETIVOS_MO, potenciaPV, potenciaWT, limitesPorDefecto, flujoCaja, crf, tasaReal } from "./model.js?v=20261015d";
-import { monteCarlo, genetico, shade, pso, gwo, woa, eo, nsga2, mopso, aptitud, PENALIZACION } from "./optimizers.js?v=20261015d";
-import * as dem from "./demand.js?v=20261015d";
-import { svgDiagrama, svgLayout, descargarSVG, descargarPNG, descargar } from "./diagram.js?v=20261015d";
-import * as zona from "./zona.js?v=20261015d";
+import { CATALOGO, MODULOS, NOMBRES, ECONOMIA_TESIS, FUENTES, OBJETIVOS_MO, potenciaPV, potenciaWT, limitesPorDefecto, flujoCaja, crf, tasaReal } from "./model.js?v=20261015e";
+import { monteCarlo, genetico, shade, pso, gwo, woa, eo, nsga2, mopso, aptitud, PENALIZACION } from "./optimizers.js?v=20261015e";
+import * as dem from "./demand.js?v=20261015e";
+import { svgDiagrama, svgLayout, descargarSVG, descargarPNG, descargar } from "./diagram.js?v=20261015e";
+import * as zona from "./zona.js?v=20261015e";
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -124,7 +124,7 @@ const estado = {
   zona: null,           // { pts, area (m²), centro, elev }
 };
 let mapaZona = null, mapaLayout = null, vista3d = null, turno3d = 0;
-const cacheLayout = {}, cacheEstela = {};
+const cacheLayout = {}, cacheEstela = {}, cacheSombra = {};
 let pool = null, detener = false;
 const graficos = {};
 
@@ -413,6 +413,7 @@ function distribucion() {
   const wt = estado.equipos.wt, pv = estado.equipos.pv;
   const op = { D: wt.rotor, sx: Math.max(1, num("#lay-sx")), sy: Math.max(1, num("#lay-sy")), retiro: Math.max(0, num("#lay-retiro")) * (wt.hub + wt.rotor / 2), eje: num("#lay-eje") };
   const clave = JSON.stringify([z.pts, op]);                     // la grilla se recalcula solo si cambia algo
+  Object.assign(op, { compartir: $("#lay-compartir").checked, libre: Math.max(0.5, num("#lay-libre")) });
   if (cacheLayout.clave !== clave) Object.assign(cacheLayout, { clave, lay: zona.distribuirAerogeneradores(z.pts, op) });
   const lay = cacheLayout.lay;
   const paneles = zona.distribucionPaneles(z.centro[0], { areaPanelM2: pv.pr / (pv.eff / 100), aprovechamiento: Math.min(1, Math.max(0.1, num("#lay-aprov") / 100)) });
@@ -439,7 +440,7 @@ async function estelaActual(d) {
 
 function terreno() {
   const d = $("#lay-usar").checked ? distribucion() : null;
-  return d ? { area: estado.zona.area, aWt: estado.arq.wt ? d.celdaM2 : 0, aPv: estado.arq.pv ? d.paneles.m2PorPanel : 0, nWt: d.nWt, nPv: d.nPv } : null;
+  return d ? { area: estado.zona.area, aWt: estado.arq.wt ? zona.areaExclusiva(d.op) : 0, aPv: estado.arq.pv ? d.paneles.m2PorPanel : 0, nWt: d.nWt, nPv: d.nPv } : null;
 }
 
 function renderDistribucion() {
@@ -639,7 +640,7 @@ class Pool {
   constructor(n) {
     this.pend = new Map(); this.id = 0;
     this.workers = Array.from({ length: n }, () => {
-      const w = new Worker(new URL("./worker.js?v=20261015d", import.meta.url), { type: "module" });
+      const w = new Worker(new URL("./worker.js?v=20261015e", import.meta.url), { type: "module" });
       w.onmessage = (e) => {
         const p = this.pend.get(e.data.id);
         if (!p) return;
@@ -701,8 +702,14 @@ async function armarCaso() {
   const t = terreno(), d = t && distribucion();
   const est = d && (await estelaActual(d));
   const fPv = d ? 1 - d.paneles.sombra : 1;                     // sombra entre filas
+  let sombraWt = null;                                          // sombra de los aerogeneradores sobre los paneles
+  if (est && estado.arq.pv) {
+    const op = { ...d.op, hub: estado.equipos.wt.hub, beta: d.paneles.beta, nMax: est.nMax }, clave = JSON.stringify([op, estado.zona.pts]);
+    if (cacheSombra.orden !== d.posiciones || cacheSombra.clave !== clave) Object.assign(cacheSombra, { orden: d.posiciones, clave, val: zona.interaccionPV(estado.zona.pts, d.posiciones, op) });
+    sombraWt = { ...cacheSombra.val, m2Panel: d.paneles.m2PorPanel };
+  }
   return { demanda: Array.from(estado.demanda), wtKw: Array.from(s.wt), pvKw: Array.from(s.pv, (x) => x * fPv), equipos: clonar(estado.equipos), economia: leerEconomia(),
-    terreno: t && { area: t.area, aWt: t.aWt, aPv: t.aPv }, estela: est && { eta: est.eta, sec: est.sec, S: est.S, nMax: est.nMax } };
+    terreno: t && { area: t.area, aWt: t.aWt, aPv: t.aPv }, estela: est && { eta: est.eta, sec: est.sec, S: est.S, nMax: est.nMax }, sombraWt };
 }
 
 let ultimoGrafico = 0;
@@ -1052,8 +1059,8 @@ function renderLayoutResultado(cfg, r, meta) {
   if (cfg[0] && dist.estela) perd.push(`estelas entre aerogeneradores ${fmt((1 - zona.eficienciaParque(dist.estela, cfg[0])) * 100, 1)} % de la energía eólica`);
   if (cfg[1]) perd.push(`sombra entre filas ${fmt(p.sombra * 100, 1)} %`);
   if (cfg[0] && cfg[1]) perd.push(`sombra de los aerogeneradores sobre los paneles ${fmt(geo.sombraPv * 100, 2)} %`);
-  if (perd.length) notas.push(`Pérdidas: ${perd.join("; ")}.${cfg[0] && cfg[1] ? " La última no se descuenta en la simulación." : ""}`);
-  notas.push("Los aerogeneradores están en las posiciones que más energía dan con las estelas de la rosa de vientos; los paneles se agrupan alrededor del bloque de potencia, fuera de la sombra de los aerogeneradores. Es un anteproyecto: el trazado final requiere topografía, accesos y un estudio de viento en terreno.");
+  if (perd.length) notas.push(`Pérdidas descontadas en la simulación: ${perd.join("; ")}.`);
+  notas.push(`Los aerogeneradores están en las posiciones que más energía dan con las estelas de la rosa de vientos; los paneles se agrupan alrededor del bloque de potencia${dist.op.compartir ? ", también entre los aerogeneradores," : ""} y evitan su sombra mientras haya terreno sin ella. Es un anteproyecto: el trazado final requiere topografía, accesos y un estudio de viento en terreno.`);
   $("#layout-nota").textContent = notas.join(" ");
 }
 
@@ -1065,7 +1072,7 @@ async function mostrar3D(op) {
   const ley = $("#leyenda-3d"); ley.replaceChildren();
   const chip = (color, texto) => { const s = document.createElement("span"), i = document.createElement("i"); i.style.background = color; s.append(i, texto); ley.appendChild(s); };
   try {
-    const m = await import("./escena3d.js?v=20261015d");
+    const m = await import("./escena3d.js?v=20261015e");
     chip("#FF8A3D", "Zona");
     if (op.cfg[0]) chip("#F7F8FA", `Aerogeneradores (${fmt(op.cfg[0])})`);
     if (op.cfg[1]) chip("#2456A6", `Paneles (${fmt(op.cfg[1])})`);
@@ -1241,7 +1248,7 @@ function iniciar() {
   for (const e of dem.ESTACIONES) { const o = document.createElement("option"); o.value = e.id; o.textContent = e.nombre; $("#est-id").appendChild(o); }
   $("#est-id").addEventListener("change", cargarEstacion);
   $("#rec-archivo").addEventListener("change", cargarRecursoCSV);
-  ["#lay-usar", "#lay-eje", "#lay-sx", "#lay-sy", "#lay-retiro", "#lay-aprov"].forEach((s) => $(s).addEventListener("change", () => { renderDistribucion(); cambiosGenerales(); }));
+  ["#lay-usar", "#lay-eje", "#lay-sx", "#lay-sy", "#lay-retiro", "#lay-aprov", "#lay-libre", "#lay-compartir"].forEach((s) => $(s).addEventListener("change", () => { renderDistribucion(); cambiosGenerales(); }));
   $$('[role="tab"]').forEach((b) => b.addEventListener("click", () => abrirPestana(b.dataset.tab)));
   $(".tabs-in").addEventListener("keydown", (e) => {
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;

@@ -5,7 +5,7 @@
 // ponytail: rectángulo que cubre las cuatro regiones, no su límite exacto; usar un GeoJSON regional si hace falta precisión.
 export const REGION = { latMin: -39.7, latMax: -34.6, lonMin: -74.0, lonMax: -70.3 };
 export const AREA_MAX_KM2 = 25;          // límite para que la zona sea un terreno, no una comuna entera
-import { potenciaWT } from "./model.js?v=20261015d";
+import { potenciaWT } from "./model.js?v=20261015e";
 
 const R = 6378137;
 const rad = (g) => (g * Math.PI) / 180, grados = (r) => (r * 180) / Math.PI;
@@ -154,30 +154,96 @@ export function distribucionPaneles(lat, { areaPanelM2, aprovechamiento = 0.85 }
   return { beta, alfa, gcr, m2PorPanel: areaPanelM2 / (gcr * aprovechamiento), sombra: sombraFilas(lat, rad(beta), gcr) };
 }
 
-// Fracción anual de la radiación de cada celda que tapa la sombra de los aerogeneradores: la torre tapa la franja
-// que cubre y el rotor, al girar, solo su solidez (~6 % del área barrida). Sombra proyectada sobre el suelo.
+// Sombra de UN aerogenerador sobre las celdas del campo solar: fracción anual de la radiación de cada celda que
+// tapa. La torre tapa la franja que cubre y el rotor, al girar, solo su solidez (~6 % del área barrida). Sombra
+// proyectada sobre el suelo; la de varios aerogeneradores se suma. Devuelve [[celda, pérdida], …] (solo las > 0).
 const SOLIDEZ = 0.06;
-function sombraTurbinas(lat, beta, celdas, turb, { hub, D, lado }) {
-  const soles = cieloDespejado(lat, beta, 7, 0.5), tot = soles.reduce((a, s) => a + s.total, 0);
-  const R = D / 2, ancho = Math.max(0.3, hub / 30), alcance = hub / Math.tan(rad(5)) + R + lado;
+function sombraDe([tx, ty], celdas, soles, { hub, D, lado }) {
+  const R = D / 2, ancho = Math.max(0.3, hub / 30), alcance = hub / Math.tan(rad(8)) + R + lado;
   const fTorre = Math.min(1, ancho / lado), fRotor = SOLIDEZ * Math.min(1, (Math.PI * R * R) / (lado * lado));
-  return celdas.map(([x, y]) => {
-    const cerca = turb.filter(([tx, ty]) => Math.hypot(x - tx, y - ty) < alcance);
-    if (!cerca.length) return 0;
+  const out = [];
+  celdas.forEach(([x, y], i) => {
+    const px = x - tx, py = y - ty;
+    if (Math.hypot(px, py) >= alcance) return;
     let perd = 0;
     for (const s of soles) {
-      if (!s.haz) continue;
-      const L = hub / Math.tan(s.alt), sx = -Math.sin(s.az) * L, sy = -Math.cos(s.az) * L;   // sombra del buje
+      const sx = s.ux * hub, sy = s.uy * hub;                // sombra del buje
       let f = 0;
-      for (const [tx, ty] of cerca) {
-        const px = x - tx, py = y - ty;
-        if (distSegmento([px, py], [0, 0], [sx, sy]) < lado / 2) f += fTorre;
-        if (Math.hypot(px - sx, py - sy) < R + lado / 2) f += fRotor;
-      }
+      if (distSegmento([px, py], [0, 0], [sx, sy]) < lado / 2) f += fTorre;
+      if (Math.hypot(px - sx, py - sy) < R + lado / 2) f += fRotor;
       perd += s.haz * Math.min(1, f);
     }
-    return perd / tot;
+    if (perd) out.push([i, perd]);
   });
+  return out;
+}
+// Soles para la sombra de los aerogeneradores (cada 10 días y 1 h; basta para un promedio anual). Bajo 8° de
+// altura el haz directo es débil y las sombras, muy largas: se omiten.
+function solesSombra(lat, beta) {
+  const todos = cieloDespejado(lat, beta, 10, 1), tot = todos.reduce((a, s) => a + s.total, 0);
+  return todos.filter((s) => s.haz && s.alt >= rad(8)).map((s) => ({ haz: s.haz / tot, ux: -Math.sin(s.az) / Math.tan(s.alt), uy: -Math.cos(s.az) / Math.tan(s.alt) }));
+}
+
+// Celdas cuadradas (hasta ~3000) dentro de la zona, en metros locales, para armar el campo solar.
+function celdasZona(pts) {
+  const pr = proyeccion(centro(pts)), poli = pts.map(pr.a);
+  const X = poli.map((p) => p[0]), Y = poli.map((p) => p[1]);
+  const [x0, x1, y0, y1] = [Math.min(...X), Math.max(...X), Math.min(...Y), Math.max(...Y)];
+  const lado = Math.max(5, Math.sqrt(((x1 - x0) * (y1 - y0)) / 3000));
+  const poliYX = poli.map(([x, y]) => [y, x]), celdas = [];
+  for (let x = x0 + lado / 2; x < x1; x += lado) for (let y = y0 + lado / 2; y < y1; y += lado) if (dentro([y, x], poliYX)) celdas.push([x, y]);
+  return { pr, poli, lado, celdas, c: pr.a(centro(pts)) };
+}
+
+// Terreno que cada aerogenerador quita a los paneles. Sin compartir: toda su celda de separación (sx·D × sy·D).
+// Compartiendo: solo un círculo de radio libre·D alrededor de la torre (fundación, plataforma de grúa, acceso);
+// los paneles pueden ir entre los aerogeneradores, pero ahí reciben su sombra.
+function ocupaCeldas([tx, ty], celdas, { D, sx, sy, eje, compartir, libre }) {
+  const u = [Math.sin(rad(eje)), Math.cos(rad(eje))], w = [u[1], -u[0]], out = [];
+  celdas.forEach(([x, y], i) => {
+    const dx = x - tx, dy = y - ty;
+    if (compartir ? Math.hypot(dx, dy) < libre * D : Math.abs(dx * u[0] + dy * u[1]) < (sx * D) / 2 && Math.abs(dx * w[0] + dy * w[1]) < (sy * D) / 2) out.push(i);
+  });
+  return out;
+}
+export const areaExclusiva = ({ D, sx, sy, compartir, libre }) => (compartir ? Math.PI * (libre * D) ** 2 : sx * D * sy * D);
+
+// Orden en que se llena el campo solar: la celda libre más cercana al centro es para el bloque de potencia; luego,
+// desde el centro hacia afuera, las que la sombra de los aerogeneradores tapa menos de 0,5 % al año, y al final las
+// demás, de menos a más sombra.
+function ordenCeldas(celdas, c, ocupada, perd) {
+  const d2 = (i) => (celdas[i][0] - c[0]) ** 2 + (celdas[i][1] - c[1]) ** 2;
+  const libres = [];
+  for (let i = 0; i < celdas.length; i++) if (!ocupada[i]) libres.push(i);
+  if (!libres.length) return { bloque: -1, orden: [] };
+  let bloque = libres[0];
+  for (const i of libres) if (d2(i) < d2(bloque)) bloque = i;
+  const malo = (i) => perd[i] > 0.005;
+  const orden = libres.filter((i) => i !== bloque).sort((i, j) => malo(i) - malo(j) || (malo(i) ? perd[i] - perd[j] : d2(i) - d2(j)));
+  return { bloque, orden };
+}
+
+// Interacción paneles-aerogeneradores para el optimizador: pérdida media por sombra de los aerogeneradores en las
+// primeras k celdas del campo solar, con los primeros n aerogeneradores (n = 0..nMax, k = 1..K).
+// tabla[n·K + k − 1]; si k pasa de las celdas libres, se repite la última.
+export function interaccionPV(pts, posiciones, op) {
+  const z = celdasZona(pts), K = z.celdas.length, nMax = Math.min(posiciones.length, op.nMax);
+  const soles = solesSombra(centro(pts)[0], rad(op.beta));
+  const perd = new Float64Array(K), ocupada = new Uint8Array(K), tabla = new Float32Array((nMax + 1) * K);
+  for (let n = 0; n <= nMax; n++) {
+    if (n) {
+      const t = z.pr.a(posiciones[n - 1]);
+      for (const [i, p] of sombraDe(t, z.celdas, soles, { ...op, lado: z.lado })) perd[i] += p;
+      for (const i of ocupaCeldas(t, z.celdas, op)) ocupada[i] = 1;
+    }
+    const { orden } = ordenCeldas(z.celdas, z.c, ocupada, perd);
+    let suma = 0;
+    for (let k = 0; k < K; k++) {
+      if (k < orden.length) suma += Math.min(1, perd[orden[k]]);
+      tabla[n * K + k] = orden.length ? suma / Math.min(k + 1, orden.length) : 0;
+    }
+  }
+  return { tabla, K, nMax, m2Celda: z.lado * z.lado };
 }
 
 /* ---------- Estelas entre aerogeneradores (modelo de Jensen/Katić) ---------- */
@@ -284,40 +350,25 @@ export function estelaParque(pts, posiciones, { D, wt, clima, eje }) {
 export const eficienciaParque = (e, n) => e.eta[Math.min(n, e.nMax) * (e.S + 1) + e.S];
 
 // Ubicación de los equipos de un resultado, en metros locales (x al este, y al norte):
-// - los primeros nWt aerogeneradores de la grilla, cada uno dueño de su celda de separación;
-// - el campo fotovoltaico en celdas cuadradas libres de esas celdas, desde el bloque de potencia hacia afuera,
-//   hasta cubrir el terreno que necesitan los paneles (areaPv, m²); las celdas que la sombra de los
-//   aerogeneradores tapa más de 0,5 % al año quedan al final;
-// - el bloque de potencia (conversores, H₂, baterías, diésel) en el punto libre más cercano al centro.
+// - los primeros nWt aerogeneradores de la lista (ordenada por energía con estelas);
+// - el bloque de potencia (conversores, H₂, baterías, diésel) en la celda libre más cercana al centro;
+// - el campo fotovoltaico en las celdas que deja libres el terreno de los aerogeneradores, en el orden de
+//   ordenCeldas, hasta cubrir el terreno que necesitan los paneles (areaPv, m²).
 // ponytail: el campo FV se arma con celdas de hasta ~3000 por zona; para un trazado fino de mesas, usar un CAD.
-export function layoutResultado(pts, { posiciones, D, sx, sy, eje, nWt, areaPv, hub = 0, beta = 0 }) {
-  const pr = proyeccion(centro(pts)), poli = pts.map(pr.a);
-  const u = [Math.sin(rad(eje)), Math.cos(rad(eje))], w = [u[1], -u[0]];
-  const turb = posiciones.slice(0, nWt).map(pr.a);
-  const enCeldaWt = ([x, y]) => turb.some(([tx, ty]) => {
-    const dx = x - tx, dy = y - ty;
-    return Math.abs(dx * u[0] + dy * u[1]) < (sx * D) / 2 && Math.abs(dx * w[0] + dy * w[1]) < (sy * D) / 2;
-  });
-  const X = poli.map((p) => p[0]), Y = poli.map((p) => p[1]);
-  const [x0, x1, y0, y1] = [Math.min(...X), Math.max(...X), Math.min(...Y), Math.max(...Y)];
-  const lado = Math.max(5, Math.sqrt(((x1 - x0) * (y1 - y0)) / 3000));
-  const poliYX = poli.map(([x, y]) => [y, x]), libres = [];
-  for (let x = x0 + lado / 2; x < x1; x += lado) for (let y = y0 + lado / 2; y < y1; y += lado) {
-    if (dentro([y, x], poliYX) && !enCeldaWt([x, y])) libres.push([x, y]);
+export function layoutResultado(pts, { posiciones, nWt, areaPv, hub = 0, beta = 0, ...op }) {
+  const z = celdasZona(pts), K = z.celdas.length;
+  const turb = posiciones.slice(0, nWt).map(z.pr.a);
+  const perd = new Float64Array(K), ocupada = new Uint8Array(K);
+  const soles = turb.length && areaPv ? solesSombra(centro(pts)[0], rad(beta)) : [];
+  for (const t of turb) {
+    if (soles.length) for (const [i, p] of sombraDe(t, z.celdas, soles, { hub, D: op.D, lado: z.lado })) perd[i] += p;
+    for (const i of ocupaCeldas(t, z.celdas, op)) ocupada[i] = 1;
   }
-  const c = pr.a(centro(pts));
-  const d2 = (p) => (p[0] - c[0]) ** 2 + (p[1] - c[1]) ** 2;
-  libres.sort((p, q) => d2(p) - d2(q));
-  const bloque = libres[0] || c;
-  const resto = libres.slice(1), nPv = Math.ceil(areaPv / (lado * lado) - 1e-9);
-  // ponytail: la sombra se evalúa solo en las celdas cercanas que podrían usarse (3× las necesarias).
-  const cand = resto.slice(0, Math.min(resto.length, 3 * nPv + 50));
-  const som = turb.length && nPv ? sombraTurbinas(centro(pts)[0], rad(beta), cand, turb, { hub, D, lado }) : cand.map(() => 0);
-  const orden = cand.map((p, i) => i).sort((i, j) => (som[i] > 0.005) - (som[j] > 0.005) || (som[i] > 0.005 ? som[i] - som[j] : 0) || i - j);
-  const elegidas = [...orden, ...resto.slice(cand.length).map((p, i) => cand.length + i)].slice(0, nPv);
-  const pv = elegidas.map((i) => resto[i]);
-  const sombraPv = elegidas.length ? elegidas.reduce((a, i) => a + (som[i] || 0), 0) / elegidas.length : 0;
-  return { poli, turb, pv, lado, bloque, D, sombraPv, completo: pv.length * lado * lado >= areaPv - 1e-6 };
+  const { bloque, orden } = ordenCeldas(z.celdas, z.c, ocupada, perd);
+  const elegidas = orden.slice(0, Math.ceil(areaPv / (z.lado * z.lado) - 1e-9));
+  const sombraPv = elegidas.length ? elegidas.reduce((a, i) => a + Math.min(1, perd[i]), 0) / elegidas.length : 0;
+  return { poli: z.poli, turb, pv: elegidas.map((i) => z.celdas[i]), lado: z.lado, bloque: bloque >= 0 ? z.celdas[bloque] : z.c, D: op.D, sombraPv,
+    completo: elegidas.length * z.lado * z.lado >= areaPv - 1e-6 };
 }
 
 // Mapa de solo lectura con la zona y la distribución de los aerogeneradores (usados en relleno, libres en blanco).

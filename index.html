@@ -9,10 +9,10 @@
 <meta name="description" content="Simulador y optimizador del dimensionamiento de un sistema híbrido de energías renovables (eólica y solar) con almacenamiento de energía en forma de hidrógeno, para zonas del centro-sur de Chile.">
 <link rel="icon" href="assets/icono.svg" type="image/svg+xml">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="assets/style.css?v=20261015d">
+<link rel="stylesheet" href="assets/style.css?v=20261015e">
 <script src="vendor/chart.umd.min.js" defer></script>
 <script src="vendor/leaflet/leaflet.js" defer></script>
-<script type="module" src="assets/app.js?v=20261015d"></script>
+<script type="module" src="assets/app.js?v=20261015e"></script>
 </head>
 <body>
 <header class="top">
@@ -183,9 +183,11 @@
         <h3 class="sub">Paneles</h3>
         <div class="form-grid tight">
           <label>Terreno aprovechable para mesas (%) <input type="number" id="lay-aprov" min="10" max="100" step="1" value="85"></label>
+          <label>Radio libre alrededor de cada aerogenerador (diámetros) <input type="number" id="lay-libre" min="0.5" max="5" step="0.5" value="1"></label>
         </div>
+        <label class="check"><input type="checkbox" id="lay-compartir" checked> Paneles entre los aerogeneradores (terreno compartido)</label>
         <div class="kpis compactos" id="lay-kpis"></div>
-        <p class="fine">El simulador elige cuáles posiciones de la grilla usar: agrega uno a uno los aerogeneradores que más energía suman al parque, con las estelas (modelo de Jensen) calculadas con la rosa de vientos y la curva de potencia de la serie, y descuenta esas pérdidas en la simulación. Separaciones de 5 a 9 diámetros en el eje del viento y 3 a 5 en el transversal las mantienen bajas. El retiro de una altura de punta (buje + radio) evita que un equipo caiga fuera del terreno. Los paneles miran al norte, inclinados en la latitud, con la distancia entre filas que evita sombras entre las 10 y las 14 h del solsticio de invierno; la sombra que queda fuera de ese horario se descuenta de la producción, y el campo solar evita la sombra de los aerogeneradores. Si usas ambas tecnologías, el optimizador reparte el terreno: cada aerogenerador ocupa su celda de separación y cada panel su parte de la fila; juntos no pueden pasar de la superficie de la zona.</p>
+        <p class="fine">El simulador elige cuáles posiciones de la grilla usar: agrega uno a uno los aerogeneradores que más energía suman al parque, con las estelas (modelo de Jensen) calculadas con la rosa de vientos y la curva de potencia de la serie, y descuenta esas pérdidas en la simulación. Separaciones de 5 a 9 diámetros en el eje del viento y 3 a 5 en el transversal las mantienen bajas. El retiro de una altura de punta (buje + radio) evita que un equipo caiga fuera del terreno. Los paneles miran al norte, inclinados en la latitud, con la distancia entre filas que evita sombras entre las 10 y las 14 h del solsticio de invierno; la sombra que queda fuera de ese horario se descuenta de la producción, y el campo solar evita la sombra de los aerogeneradores. Si usas ambas tecnologías, el optimizador ve su interacción: con terreno compartido, cada aerogenerador solo quita a los paneles un círculo libre alrededor de la torre (fundación, grúa y acceso), y los paneles pueden ir entre ellos; sin compartir, cada aerogenerador se queda con toda su celda de separación. En ambos casos, la sombra de los aerogeneradores sobre los paneles se descuenta de la producción solar según cuántos de cada uno se instalen, y aerogeneradores y paneles juntos no pueden pasar de la superficie de la zona.</p>
       </div>
     </div>
     <div class="nav-pasos"><button class="btn" type="button" data-ir="arquitectura">← arquitectura</button><button class="btn btn-primary" type="button" data-ir="criterios">Siguiente: economía y confiabilidad →</button></div>
@@ -558,10 +560,15 @@
       </details>
       <details class="termino"><summary>Sombra de los aerogeneradores sobre los paneles</summary>
         <p>La torre proyecta una franja de sombra y el rotor, al girar, tapa en promedio su solidez (alrededor de 6 % del área barrida). Para cada celda del campo solar se suma, a lo largo del año, la radiación directa que tapan los aerogeneradores cercanos, con la sombra del buje a la distancia h<sub>buje</sub>/tan α<sub>sol</sub> en dirección opuesta al sol (hacia el sur).</p>
-        <p class="en-sim">Las celdas que pierden más de 0,5 % al año quedan para el final: el campo solar se arma primero en terreno sin sombra. La pérdida promedio del campo elegido se informa junto al layout.</p>
+        <p class="en-sim">Las celdas que pierden más de 0,5 % al año quedan para el final: el campo solar se arma primero en terreno sin sombra. Antes de optimizar se calcula una tabla con la pérdida media del campo solar para cada número de aerogeneradores (hasta 150) y de paneles, y cada simulación multiplica la producción FV por (1 − pérdida). Así el optimizador ve que agregar aerogeneradores sombrea paneles, y que agregar paneles los obliga a usar terreno con sombra cuando se acaba el libre.</p>
+      </details>
+      <details class="termino"><summary>Terreno compartido</summary>
+        <p>En un parque híbrido los paneles pueden ocupar el espacio entre los aerogeneradores, que solo necesitan un círculo libre alrededor de la torre para la fundación, la plataforma de la grúa y el acceso (por defecto, un diámetro de rotor). La restricción de terreno pasa a ser:</p>
+        <p class="ecuacion">n<sub>WT</sub> · π (r<sub>libre</sub>·D)² + n<sub>PV</sub> · A<sub>panel</sub> ≤ A<sub>zona</sub> &nbsp;&nbsp; n<sub>WT</sub> ≤ posiciones de la grilla</p>
+        <p class="en-sim">Sin terreno compartido, cada aerogenerador reserva su celda s<sub>x</sub>D × s<sub>y</sub>D completa. Comparar ambas opciones muestra cuánto terreno se gana y cuánta energía solar se pierde por sombra.</p>
       </details>
       <details class="termino"><summary>Restricción de terreno</summary>
-        <p class="ecuacion">n<sub>WT</sub> · s<sub>x</sub> s<sub>y</sub> D² + n<sub>PV</sub> · A<sub>panel</sub> ≤ A<sub>zona</sub></p>
+        <p class="ecuacion">n<sub>WT</sub> · s<sub>x</sub> s<sub>y</sub> D² + n<sub>PV</sub> · A<sub>panel</sub> ≤ A<sub>zona</sub> &nbsp;&nbsp; (con terreno compartido, s<sub>x</sub> s<sub>y</sub> D² pasa a π (r<sub>libre</sub>·D)²)</p>
         <p class="en-sim">Si no se cumple, la configuración se trata como no factible, igual que una que no cumple la confiabilidad.</p>
       </details>
     </div>

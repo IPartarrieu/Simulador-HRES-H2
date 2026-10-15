@@ -172,7 +172,9 @@ export function npcUnidad(dev, df, anios, anual = 0) {
 // Arma todo lo que necesita la simulación: series por unidad, capacidades y costos por unidad.
 // `demanda`: kW horarios; `wtKw`, `pvKw`: potencia de UNA unidad en cada hora.
 // `estela` (opcional, de zona.estelaParque): eficiencia del parque por sector y sector de cada hora.
-export function prepararCaso({ demanda, wtKw, pvKw, equipos, economia, terreno = null, estela = null }) {
+// `sombraWt` (opcional, de zona.interaccionPV): pérdida FV por la sombra de n aerogeneradores en k celdas,
+// con `m2Panel` (terreno por panel) para pasar de paneles a celdas.
+export function prepararCaso({ demanda, wtKw, pvKw, equipos, economia, terreno = null, estela = null, sombraWt = null }) {
   const eq = { bat: CATALOGO.bat[0], dg: CATALOGO.dg[0], ...equipos };
   const eco = { ...ECONOMIA_TESIS, ...economia };
   const n = demanda.length;
@@ -200,7 +202,16 @@ export function prepararCaso({ demanda, wtKw, pvKw, equipos, economia, terreno =
     crf: coef, df, sumaDF, anios: eco.anios, precioDiesel: eco.diesel,
     npcU, ciU: MODULOS.map((k) => eq[k].ci), terreno,
     estela: estela && { eta: Float32Array.from(estela.eta), sec: estela.sec && Uint8Array.from(estela.sec), S: estela.S, nMax: estela.nMax },
+    sombraWt: sombraWt && { ...sombraWt, tabla: Float32Array.from(sombraWt.tabla) },
   };
+}
+
+// Fracción de la energía FV que tapa la sombra de los aerogeneradores (promedio anual del campo solar).
+export function sombraAerogeneradores(caso, nWt, nPv) {
+  const s = caso.sombraWt;
+  if (!s || !nWt || !nPv || !s.K) return 0;
+  const k = Math.min(s.K, Math.max(1, Math.ceil((nPv * s.m2Panel) / s.m2Celda - 1e-9)));
+  return s.tabla[Math.min(nWt, s.nMax) * s.K + k - 1];
 }
 
 /* ---------- Simulación horaria (HRES de funciones.py + baterías y diésel) ---------- */
@@ -244,8 +255,9 @@ export function simular(caso, cfg, completo = false) {
   }
 
   const est = caso.estela, filaE = est ? Math.min(nWt, est.nMax) * (est.S + 1) : 0;   // estelas: eficiencia del parque
+  const fPv = 1 - sombraAerogeneradores(caso, nWt, nPv);
   for (let t = 0; t < n; t++) {
-    const WT = wt1[t] * nWt * (est ? est.eta[filaE + (est.sec ? est.sec[t] : est.S)] : 1), PV = pv1[t] * nPv, d = D[t];
+    const WT = wt1[t] * nWt * (est ? est.eta[filaE + (est.sec ? est.sec[t] : est.S)] : 1), PV = pv1[t] * nPv * fPv, d = D[t];
     let sum = 0, exc = 0, necStr = 0;
     let lossAcDc = 0, lossEle = 0, lossStr = 0, lossFc = 0, lossDg = 0;
 
@@ -357,8 +369,9 @@ export function violacion(res, crit, caso, cfg) {
   return v + excesoTerreno(caso, cfg);
 }
 
-// Zona del proyecto: los aerogeneradores (cada uno con su celda de separación) y los paneles (con el
-// espacio entre filas) no pueden ocupar más que la superficie disponible. Sin zona no se aplica.
+// Zona del proyecto: los aerogeneradores (su celda de separación o, si comparten el terreno con los paneles, su
+// círculo libre) y los paneles (con el espacio entre filas) no pueden ocupar más que la superficie disponible.
+// Sin zona no se aplica.
 export function excesoTerreno(caso, cfg) {
   const t = caso.terreno;
   if (!t || !cfg) return 0;
