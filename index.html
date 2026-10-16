@@ -9,10 +9,10 @@
 <meta name="description" content="Simulador y optimizador del dimensionamiento de un sistema híbrido de energías renovables (eólica y solar) con almacenamiento de energía en forma de hidrógeno, para zonas del centro-sur de Chile.">
 <link rel="icon" href="assets/icono.svg" type="image/svg+xml">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="assets/style.css?v=20261016b">
+<link rel="stylesheet" href="assets/style.css?v=20261016c">
 <script src="vendor/chart.umd.min.js" defer></script>
 <script src="vendor/leaflet/leaflet.js" defer></script>
-<script type="module" src="assets/app.js?v=20261016b"></script>
+<script type="module" src="assets/app.js?v=20261016c"></script>
 </head>
 <body>
 <header class="top">
@@ -162,11 +162,14 @@
     <div class="equipos" id="equipos"></div>
     <h3 class="sub">Pérdidas y disponibilidad</h3>
     <div class="form-grid tight">
+      <label>Curva de potencia del aerogenerador <select id="wt-curva"><option value="fabricante">Del fabricante cuando la hay; si no, lineal</option><option value="lineal">Lineal (tesis)</option><option value="cubica">Cúbica (∝ v³)</option></select></label>
+      <label>Temperatura mínima de operación del aerogenerador (°C) <input type="number" id="wt-tmin" min="-60" max="10" step="1" value="-20"></label>
+      <label class="check"><input type="checkbox" id="wt-hielo" checked> Detener el aerogenerador con hielo en las palas</label>
       <label>Disponibilidad de los aerogeneradores (%) <input type="number" id="per-disp-wt" min="50" max="100" step="0.5" value="97"></label>
       <label>Disponibilidad de los paneles (%) <input type="number" id="per-disp-pv" min="50" max="100" step="0.5" value="99"></label>
       <label>Degradación anual de los paneles (%/año) <input type="number" id="per-degr" min="0" max="5" step="0.05" value="0.5"></label>
     </div>
-    <p class="fine">La disponibilidad es la fracción del año en que el equipo está en servicio (mantenciones y fallas): típicamente 95-98 % en aerogeneradores pequeños y 99 % en plantas solares. La degradación de los módulos (0,4-0,8 %/año) se promedia en la vida del proyecto. La suciedad, los cables y el descalce entre módulos ya están en el factor de reducción del panel (0,8 por defecto, como en HOMER). El caso de ejemplo usa 100 %, 100 % y 0 %, como la tesis.</p>
+    <p class="fine">La disponibilidad es la fracción del año en que el equipo está en servicio (mantenciones y fallas): típicamente 95-98 % en aerogeneradores pequeños y 99 % en plantas solares. La degradación de los módulos (0,4-0,8 %/año) se promedia en la vida del proyecto. La suciedad, los cables y el descalce entre módulos ya están en el factor de reducción del panel (0,8 por defecto, como en HOMER). Las curvas del fabricante vienen de documentos leídos: el informe de certificación SWCC-10-12 del Bergey Excel 10 y la ficha del NPS 100C-24. Ninguna forma genérica sirve para todos: a 7 m/s el Bergey certificado entrega 2,4 kW (la lineal da 4,7 y la cúbica 2,35) y el NPS 37,9 kW (lineal 42,2, cúbica 17,6). Los aerogeneradores estándar se detienen bajo −20 °C (−30 °C las versiones para clima frío), y con hielo en las palas se detienen hasta que se derrite. El caso de ejemplo usa la curva lineal, sin frío ni hielo, y 100 %, 100 % y 0 %, como la tesis.</p>
     <h3 class="sub">Hidrógeno en operación real</h3>
     <div class="form-grid tight">
       <label>Carga mínima del electrolizador (% por unidad) <input type="number" id="h2-ele-min" min="0" max="50" step="1" value="10"></label>
@@ -394,7 +397,7 @@
       <h3 class="sub">¿Cómo funciona?</h3>
       <p>Cada hora del año, el algoritmo compara la energía generada por los aerogeneradores (bus AC) y los paneles (bus DC) con la demanda. Si sobra energía, primero se cargan las baterías y luego los electrolizadores la convierten en hidrógeno y la guardan en los tanques. Si falta, primero se descargan las baterías, luego las celdas de combustible devuelven la energía del hidrógeno y, al final, los generadores diésel cubren lo que queda. Los conversores DC/AC limitan cuánta energía pasa entre los buses.</p>
       <p>El costo se mide con el <b>LCOE</b>: el costo presente neto (NPC) de todo el proyecto (inversión, reemplazos, operación y mantenimiento, menos el valor residual), anualizado con el factor de recuperación del capital y dividido por la energía suministrada. La confiabilidad se mide con el <b>LOLE</b> (horas del año con demanda sin cubrir) o con la <b>LPSP</b> (fracción de la energía demandada que no se suministra).</p>
-      <p><b>Baterías:</b> eficiencia de carga y descarga, estado de carga mínimo (profundidad de descarga), potencia máxima según la tasa C y autodescarga. Su vida es la menor entre la vida de calendario y los ciclos equivalentes que resisten divididos por los ciclos que hacen al año. <b>Diésel:</b> consumo F = a·P + b·P<sub>nominal</sub> (L/h) con a = 0,246 y b = 0,08145 L/kWh (Diab et al., 2019), carga mínima por unidad y vida en horas de operación. Su NPC suma el combustible y la mantención de cada año, que dependen de cuánto funciona, y los reemplazos según las horas acumuladas. También se informan los litros al año, las emisiones (2,68 kg de CO₂ por litro) y la fracción renovable.</p>
+      <p><b>Baterías:</b> eficiencia de carga y descarga, estado de carga mínimo (profundidad de descarga), potencia máxima según la tasa C y autodescarga. Se desgasta por calendario y por ciclos a la vez: cada año pierde 1/vida de calendario más los ciclos del año divididos por los ciclos de vida, y se reemplaza cuando la suma llega a 1. <b>Diésel:</b> consumo F = a·P + b·P<sub>nominal</sub> (L/h) con a = 0,246 y b = 0,08145 L/kWh (Diab et al., 2019), carga mínima por unidad y vida en horas de operación. Su NPC suma el combustible y la mantención de cada año, que dependen de cuánto funciona, y los reemplazos según las horas acumuladas. También se informan los litros al año, las emisiones (2,68 kg de CO₂ por litro) y la fracción renovable.</p>
       <p>Métodos disponibles:</p>
       <ul>
         <li><b>Monte Carlo</b>, <b>algoritmo híbrido</b> (búsqueda caótica, armónica y recocido simulado) y <b>algoritmo genético</b>: métodos clásicos que descartan con una penalización las configuraciones que no cumplen la confiabilidad.</li>
@@ -464,7 +467,7 @@
       </details>
       <details class="termino"><summary>Vida útil del componente y vida del proyecto</summary>
         <p>La vida del proyecto (N) fija el horizonte del flujo de caja. La vida útil de cada componente fija cuándo se reemplaza. En las baterías y los generadores diésel, la vida depende del uso, igual que en HOMER:</p>
-        <p class="ecuacion">vida<sub>bat</sub> = min( vida calendario, ciclos de vida / ciclos equivalentes al año ) &nbsp;&nbsp; vida<sub>DG</sub> = min( vida máxima, horas de vida / horas de operación al año )</p>
+        <p class="ecuacion">vida<sub>bat</sub> = 1 / ( 1 / vida calendario + ciclos al año / ciclos de vida ) &nbsp;&nbsp; vida<sub>DG</sub> = min( vida máxima, horas de vida / horas de operación al año )</p>
       </details>
       <details class="termino"><summary>Costo del combustible</summary>
         <p>Costo anual del diésel: litros consumidos por su precio, más la mantención proporcional a la energía generada.</p>
@@ -505,9 +508,11 @@
       <details class="termino"><summary>Aerogenerador (WT)</summary>
         <p><b>Viento a la altura del buje</b> con la ley potencial, con un exponente calculado hora a hora con el viento a 10 y 100 m (entre 0 y 0,6; 1/7 si el viento es muy bajo):</p>
         <p class="ecuacion">α = ln(v<sub>100</sub> / v<sub>10</sub>) / ln 10 &nbsp;&nbsp; v<sub>buje</sub> = v<sub>10</sub> · (h<sub>buje</sub> / 10)<sup>α</sup></p>
-        <p><b>Curva de potencia</b> lineal entre la velocidad de arranque y la nominal, potencia nominal hasta la de corte, y cero fuera de ese rango. Luego se corrige por la <b>densidad del aire</b>, como en HOMER:</p>
-        <p class="ecuacion">P = P<sub>r</sub> (v − v<sub>cin</sub>) / (v<sub>r</sub> − v<sub>cin</sub>) &nbsp;&nbsp; ρ = p / (R<sub>d</sub> T) &nbsp;&nbsp; P<sub>WT</sub> = min( P · ρ / 1,225 ; P<sub>r</sub> )</p>
-        <p class="en-sim">Se conecta al bus AC. El diámetro del rotor se usa para la distribución en la zona.</p>
+        <p><b>Curva de potencia</b>: la tabla del fabricante (a 1,225 kg/m³) interpolada, cuando el equipo la tiene; si no, lineal entre la velocidad de arranque y la nominal, como en la tesis, o cúbica. Potencia nominal hasta la de corte y cero fuera de ese rango. Luego se corrige por la <b>densidad del aire</b>, como en HOMER:</p>
+        <p class="ecuacion">lineal: P = P<sub>r</sub> (v − v<sub>cin</sub>) / (v<sub>r</sub> − v<sub>cin</sub>) &nbsp;&nbsp; cúbica: P = P<sub>r</sub> (v³ − v<sub>cin</sub>³) / (v<sub>r</sub>³ − v<sub>cin</sub>³) &nbsp;&nbsp; ρ = p / (R<sub>d</sub> T) &nbsp;&nbsp; P<sub>WT</sub> = min( P · ρ / 1,225 ; P<sub>máx</sub> )</p>
+        <p>Ninguna forma genérica sirve para todos los equipos: a 7 m/s el Bergey Excel 10 certificado (informe SWCC-10-12) entrega 2,4 kW, la lineal da 4,7 y la cúbica 2,35; el NPS 100C-24 (ficha 2020) entrega 37,9 kW, la lineal 42,2 y la cúbica 17,6. Por eso se usan las tablas reales cuando existen.</p>
+        <p><b>Frío y hielo</b>: el aerogenerador se detiene bajo su temperatura mínima de operación (−20 °C estándar, −30 °C en versiones para clima frío) y con hielo en las palas. El hielo se forma en horas con T ≤ 0 °C y humedad relativa ≥ 95 % (engelamiento meteorológico, IEA Wind Task 19) y se mantiene hasta que la temperatura pasa de +1 °C. Las series del centro-sur y de ERA5 traen la humedad.</p>
+        <p class="en-sim">Se conecta al bus AC. El diámetro del rotor se usa para la distribución en la zona y para el coeficiente de empuje de las estelas.</p>
       </details>
       <details class="termino"><summary>Panel fotovoltaico (PV)</summary>
         <p>Potencia según la radiación sobre el plano del panel (G, W/m²) y la temperatura de la celda, que se estima con la NOCT:</p>
@@ -588,7 +593,7 @@
         <p>Grilla dentro de la zona con separación s<sub>x</sub>·D en el eje del viento y s<sub>y</sub>·D en la dirección transversal (D: diámetro del rotor), con retiro desde el borde igual a un factor por la altura de punta (h<sub>buje</sub> + D/2). Se prueban filas alineadas y escalonadas, y se elige la que deja más posiciones. Luego se ordenan las posiciones para maximizar la energía: en cada paso entra la que más suma al parque (su producción con las estelas que recibe, menos lo que su estela quita a los ya instalados). Así, los primeros n aerogeneradores de la lista son el mejor parque de n equipos que encuentra el método. Se evalúan hasta 600 posiciones cercanas al centro y parques de hasta 150 equipos.</p>
       </details>
       <details class="termino"><summary>Efecto estela (modelo de Jensen)</summary>
-        <p>Un aerogenerador extrae energía del viento y deja detrás una estela más lenta que se ensancha con la distancia. El simulador usa el modelo de Jensen (Katić, 1986), el de WAsP y de la mayoría de los programas de diseño de parques, con coeficiente de empuje C<sub>T</sub> = 0,8 y expansión k = 0,075 (terreno abierto). El déficit en un rotor a la distancia x aguas abajo es proporcional al área del rotor que cae dentro de la estela, y los déficits de varias estelas se suman en cuadratura:</p>
+        <p>Un aerogenerador extrae energía del viento y deja detrás una estela más lenta que se ensancha con la distancia. El simulador usa el modelo de Jensen (Katić, 1986), el de WAsP y de la mayoría de los programas de diseño de parques, con expansión k = 0,075 (terreno abierto) y el coeficiente de empuje C<sub>T</sub> que sale de la curva de potencia del equipo (teoría del momento: C<sub>p</sub> = P/(½ρAv³) = 4a(1 − a)², C<sub>T</sub> = 4a(1 − a)), promediado según la energía. Un rotor que extrae poco del viento deja una estela débil. El déficit en un rotor a la distancia x aguas abajo es proporcional al área del rotor que cae dentro de la estela, y los déficits de varias estelas se suman en cuadratura:</p>
         <p class="ecuacion">δ = (1 − √(1 − C<sub>T</sub>)) · ( R / (R + k·x) )² · A<sub>solape</sub>/A<sub>rotor</sub> &nbsp;&nbsp; δ<sub>total</sub> = √( Σ δ<sub>i</sub>² ) &nbsp;&nbsp; v = v<sub>libre</sub> · (1 − δ<sub>total</sub>)</p>
         <p>Las estelas se calculan en 36 sectores de 10°. Con la dirección horaria del viento (ERA5 a 100 m o tu archivo), cada hora usa la eficiencia de su sector; si el recurso no trae la dirección, se usa una rosa de dos lóbulos centrada en el eje dominante. La potencia con el viento reducido sale de la misma curva del aerogenerador, con la densidad del aire de cada hora.</p>
         <p class="ecuacion">η<sub>parque</sub>(n) = Σ<sub>t</sub> Σ<sub>i≤n</sub> P(v<sub>t</sub>(1 − δ<sub>i</sub>)) / ( n · Σ<sub>t</sub> P(v<sub>t</sub>) ) &nbsp;&nbsp; P<sub>WT,t</sub> = n · P<sub>1,t</sub> · η<sub>sector(t)</sub>(n)</p>

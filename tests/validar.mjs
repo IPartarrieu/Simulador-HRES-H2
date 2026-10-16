@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import { decodificarSerie } from "../assets/codec.js";
 import { CATALOGO, ECONOMIA_TESIS, prepararCaso, simular, crf, tasaReal, npcUnidad, potenciaWT } from "../assets/model.js";
-import { estelaParque, eficienciaParque, distribucionPaneles, sombraFilas, proyeccion, interaccionPV, distribuirAerogeneradores, factorCeldasFV } from "../assets/zona.js";
+import { ctEfectivo, estelaParque, eficienciaParque, distribucionPaneles, sombraFilas, proyeccion, interaccionPV, distribuirAerogeneradores, factorCeldasFV } from "../assets/zona.js";
 
 const datos = JSON.parse(readFileSync(new URL("../data/ejemplo_45s_2018.json", import.meta.url)));
 datos.demanda_kw = decodificarSerie(datos.demanda_codificada);
@@ -47,12 +47,12 @@ for (const [nombre, a, b, tol] of homer) {
 }
 
 // 3) Estelas (Jensen) y sombras. Viento siempre del norte a 8 m/s; dos aerogeneradores Gaia (D = 13 m) a 7D en
-//    línea norte-sur: el de atrás recibe δ = 0,553·(1/(1 + 0,075·14))² y la eficiencia sale de la curva de potencia.
+//    línea norte-sur: el de atrás recibe δ = (1 − √(1 − Ct))·(1/(1 + 0,075·14))², con el Ct de la curva de potencia.
 const wt = equipos.wt, D = wt.rotor, h = 8760;
 const clima = { v10_ms: Array(h).fill(8), v100_ms: Array(h).fill(8 * 10 ** (1 / 7)), temp_c: Array(h).fill(15), presion_hpa: Array(h).fill(1013.25), dir100_deg: Array(h).fill(0) };
 const pr = proyeccion([-37, -72]), cuadro = [[-37.01, -72.01], [-37.01, -71.99], [-36.99, -71.99], [-36.99, -72.01]];
 const P = (f) => potenciaWT(wt, [8], [clima.v100_ms[0]], [15], [1013.25], f)[0];
-const dJ = (1 - Math.sqrt(0.2)) / (1 + 2 * 0.075 * 7) ** 2;
+const dJ = (1 - Math.sqrt(1 - ctEfectivo(wt, clima))) / (1 + 2 * 0.075 * 7) ** 2;
 const enLinea = estelaParque(cuadro, [pr.b([0, 3.5 * D]), pr.b([0, -3.5 * D])], { D, wt, clima, eje: 0 });
 const lado = estelaParque(cuadro, [pr.b([0, 0]), pr.b([0, -7 * D]), pr.b([4 * D, 0])], { D, wt, clima, eje: 0 });
 const seg = pr.a(lado.orden[1]);
@@ -107,6 +107,13 @@ const r1 = simular(caso, cfgH), r2 = simular(caso2, cfgH, true);
 otros.push(
   ["2 años iguales: energía anual ≈ la de 1 año", r2.eSum / r1.eSum, 1, 0.01],
   ["2 años: las series de los gráficos son de un año", r2.series.d.length, 8760, 0],
+);
+// Curvas del fabricante (1,225 kg/m³): la simulación debe devolver los valores de la tabla.
+const curva = (id, v) => potenciaWT({ ...CATALOGO.wt.find((x) => x.id === id), curva: "fabricante" }, [v], [v], [15], [1013.25])[0];
+otros.push(
+  ["Bergey Excel 10 certificado a 7 m/s (kW)", curva("bergey10", 7), 2.403, 1e-3],
+  ["Bergey Excel 10 a 16,5 m/s: 12,6 kW, sobre la nominal", curva("bergey10", 16.5), 12.555, 1e-3],
+  ["NPS 100C-24 a 8,5 m/s, interpolada (kW)", curva("nps100", 8.5), (58.7 + 74.8) / 2, 1e-3],
 );
 for (const [nombre, a, e, tol] of otros) {
   const ok = cerca(a, e, tol); fallas += ok ? 0 : 1;

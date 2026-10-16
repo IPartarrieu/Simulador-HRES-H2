@@ -5,7 +5,7 @@
 // ponytail: rectángulo que cubre las cuatro regiones, no su límite exacto; usar un GeoJSON regional si hace falta precisión.
 export const REGION = { latMin: -39.7, latMax: -34.6, lonMin: -74.0, lonMax: -70.3 };
 export const AREA_MAX_KM2 = 25;          // límite para que la zona sea un terreno, no una comuna entera
-import { potenciaWT, vientoBuje } from "./model.js?v=20261016b";
+import { potenciaWT, vientoBuje } from "./model.js?v=20261016c";
 
 const R = 6378137;
 const rad = (g) => (g * Math.PI) / 180, grados = (r) => (r * 180) / Math.PI;
@@ -375,7 +375,24 @@ export function interaccionPV(pts, posiciones, op, rel) {
 /* ---------- Estelas entre aerogeneradores (modelo de Jensen/Katić) ---------- */
 
 const NSEC = 36, NDEF = 61, PASO_DEF = 0.01;     // rosa de 10°; potencia tabulada para déficits de 0 a 60 %
-const CT = 0.8, K_ESTELA = 0.075;                  // coef. de empuje y expansión de la estela (terreno abierto)
+const K_ESTELA = 0.075;                            // expansión de la estela (terreno abierto)
+
+// Coeficiente de empuje medio del rotor, desde su curva de potencia (teoría del momento): Cp = P / (½ρAv³) da la
+// inducción axial a de Cp = 4a(1 − a)² y Ct = 4a(1 − a). Se promedia pesando por la energía, porque las estelas
+// importan cuando el aerogenerador produce. Sobre la nominal Cp baja y la estela se debilita, como en los equipos reales.
+export function ctEfectivo(wt, clima) {
+  const p = potenciaWT(wt, clima.v10_ms, clima.v100_ms, clima.temp_c, clima.presion_hpa), A = Math.PI * (wt.rotor / 2) ** 2;
+  let suma = 0, peso = 0;
+  for (let t = 0; t < p.length; t++) {
+    if (!(p[t] > 0)) continue;
+    const v = vientoBuje(wt.hub, clima.v10_ms, clima.v100_ms, t), rho = (clima.presion_hpa[t] * 100) / (287.05 * (clima.temp_c[t] + 273.15));
+    const cp = Math.min(16 / 27, (p[t] * 1000) / (0.5 * rho * A * v ** 3));
+    let a0 = 0, a1 = 1 / 3;
+    for (let k = 0; k < 30; k++) { const a = (a0 + a1) / 2; if (4 * a * (1 - a) ** 2 < cp) a0 = a; else a1 = a; }
+    suma += p[t] * 4 * a0 * (1 - a0); peso += p[t];
+  }
+  return peso ? Math.min(8 / 9, Math.max(0.05, suma / peso)) : 0.8;
+}
 const MAX_CAND = 600, MAX_PARQUE = 150, ALCANCE = 50;   // posiciones evaluadas, parque más grande, alcance en D
 
 // Rosa de vientos y potencia de una unidad con su viento reducido en δ: g[s][k] = Σ horas del sector s de
@@ -418,7 +435,7 @@ export function estelaParque(pts, posiciones, { D, wt, clima, eje }) {
   const { sec, g } = tablaEstela(wt, clima, eje);
   const pr = proyeccion(centro(pts)), todos = posiciones.map(pr.a);
   const idx = todos.map((_, i) => i).sort((a, b) => Math.hypot(...todos[a]) - Math.hypot(...todos[b])).slice(0, MAX_CAND);
-  const P = idx.length, pos = idx.map((i) => todos[i]), R = D / 2, A = 1 - Math.sqrt(1 - CT);
+  const ct = ctEfectivo(wt, clima), P = idx.length, pos = idx.map((i) => todos[i]), R = D / 2, A = 1 - Math.sqrt(1 - ct);
   const vec = Array.from({ length: P }, () => []);          // vec[j]: {k, dout: déficit que j causa en k por sector}
   for (let i = 0; i < P; i++) for (let j = i + 1; j < P; j++) {
     const dx = pos[j][0] - pos[i][0], dy = pos[j][1] - pos[i][1];
@@ -471,7 +488,7 @@ export function estelaParque(pts, posiciones, { D, wt, clima, eje }) {
   const usados = new Set(orden.map((c) => idx[c]));
   return {
     orden: [...orden.map((c) => posiciones[idx[c]]), ...posiciones.filter((_, i) => !usados.has(i))],
-    eta, S: NSEC, nMax, sec, conDireccion: !!sec,
+    eta, S: NSEC, nMax, sec, conDireccion: !!sec, ct,
   };
 }
 // Eficiencia anual del parque (energía con estelas / sin estelas) con los primeros n aerogeneradores.
@@ -511,12 +528,12 @@ const puntosRejilla = ({ x0, x1, y0, y1, n }) => Array.from({ length: n * n }, (
 // Viento medio anual a la altura del buje (m/s) con las estelas de los aerogeneradores instalados: en cada sector
 // de la rosa, el déficit de Jensen de todas las estelas que pasan por el punto (suma en cuadratura).
 // ponytail: sin efecto del relieve sobre el viento (lomas, valles); para eso hace falta un modelo de flujo (WAsP, CFD).
-export function mapaViento(rej, { turb, D, hub, clima, eje }) {
+export function mapaViento(rej, { turb, D, hub, clima, eje, wt }) {
   const n = clima.v10_ms.length, { sec, w } = rosa(clima, eje), V = new Float64Array(NSEC);
   let tot = 0;
   for (let t = 0; t < n; t++) { const v = vientoBuje(hub, clima.v10_ms, clima.v100_ms, t); tot += v; if (sec) V[sec[t]] += v; }
   if (!sec) for (let s = 0; s < NSEC; s++) V[s] = w[s] * tot;
-  const R = D / 2, A = 1 - Math.sqrt(1 - CT), d2 = new Float64Array(NSEC);
+  const R = D / 2, A = 1 - Math.sqrt(1 - ctEfectivo(wt, clima)), d2 = new Float64Array(NSEC);
   const dirs = Array.from({ length: NSEC * 3 }, (_, q) => { const th = rad(10 * (Math.floor(q / 3) + (q % 3) / 3 - 1 / 3)); return [-Math.sin(th), -Math.cos(th)]; });
   return Float32Array.from(puntosRejilla(rej), ([x, y]) => {
     d2.fill(0);

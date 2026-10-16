@@ -1,10 +1,10 @@
 // Página del Simulador HRES-H2: arma el caso con lo que elige la persona, reparte las simulaciones entre
 // Web Workers, ejecuta el método de optimización (uno o varios objetivos) y muestra los resultados.
-import { CATALOGO, MODULOS, NOMBRES, ECONOMIA_TESIS, FUENTES, OBJETIVOS_MO, potenciaPV, potenciaWT, limitesPorDefecto, flujoCaja, crf, tasaReal } from "./model.js?v=20261016b";
-import { monteCarlo, genetico, shade, pso, gwo, woa, eo, nsga2, mopso, aptitud, PENALIZACION } from "./optimizers.js?v=20261016b";
-import * as dem from "./demand.js?v=20261016b";
-import { svgDiagrama, svgLayout, descargarSVG, descargarPNG, descargar } from "./diagram.js?v=20261016b";
-import * as zona from "./zona.js?v=20261016b";
+import { CATALOGO, MODULOS, NOMBRES, ECONOMIA_TESIS, FUENTES, OBJETIVOS_MO, potenciaPV, potenciaWT, factorFrio, limitesPorDefecto, flujoCaja, crf, tasaReal } from "./model.js?v=20261016c";
+import { monteCarlo, genetico, shade, pso, gwo, woa, eo, nsga2, mopso, aptitud, PENALIZACION } from "./optimizers.js?v=20261016c";
+import * as dem from "./demand.js?v=20261016c";
+import { svgDiagrama, svgLayout, descargarSVG, descargarPNG, descargar } from "./diagram.js?v=20261016c";
+import * as zona from "./zona.js?v=20261016c";
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -201,11 +201,19 @@ function nombreRecurso() {
   return estado.climaNombre;
 }
 
+// Aerogenerador con la forma de curva elegida (lineal como la tesis, o cúbica).
+const wtModelo = () => ({ ...estado.equipos.wt, curva: $("#wt-curva").value });
+const equiposModelo = () => ({ ...clonar(estado.equipos), wt: wtModelo() });
+const leerFrio = () => ({ tMin: num("#wt-tmin"), hielo: $("#wt-hielo").checked });
+
 // Potencia horaria de UNA unidad de aerogenerador y de panel, según el recurso elegido.
 async function seriesUnidad() {
   if (estado.recurso === "tesis") { const d = await dem.datosEjemplo(); return { wt: Float64Array.from(d.tesis.wt_kw), pv: Float64Array.from(d.tesis.pv_kw) }; }
   const c = await climaActual();
-  return { wt: potenciaWT(estado.equipos.wt, c.v10_ms, c.v100_ms, c.temp_c, c.presion_hpa), pv: potenciaPV(estado.equipos.pv, c.gti_wm2, c.temp_c) };
+  const wt = potenciaWT(wtModelo(), c.v10_ms, c.v100_ms, c.temp_c, c.presion_hpa), frio = factorFrio(c, leerFrio());
+  for (let t = 0; t < wt.length; t++) wt[t] *= frio.f[t];
+  estado.frio = frio;
+  return { wt, pv: potenciaPV(estado.equipos.pv, c.gti_wm2, c.temp_c) };
 }
 
 async function cambiarRecurso() {
@@ -235,7 +243,9 @@ async function describirRecurso() {
     $("#lay-eje-nota").textContent = `Eje tomado del recurso (${nombreRecurso()}): ${c.eje_viento}°, con ${fmt(c.concentracion_viento * 100)} % de concentración de la energía del viento en ese eje.`;
   } else $("#lay-eje-nota").textContent = "Tu recurso no trae la dirección del viento: ingresa el eje dominante a mano (0° = norte-sur, 90° = este-oeste).";
   const fp = (serie, pr) => (serie.reduce((a, b) => a + Math.min(b, pr), 0) / serie.length / pr) * 100;
-  estadoTexto("#recurso-estado", `${nombreRecurso()}. Factor de planta con los equipos elegidos: aerogenerador ${fmt(fp(s.wt, estado.equipos.wt.pr), 1)} %, panel ${fmt(fp(s.pv, estado.equipos.pv.pr), 1)} %.`, "ok");
+  const f = estado.recurso === "tesis" ? null : estado.frio, anos = s.wt.length / 8760;
+  const frio = f ? ` Aerogenerador detenido ${fmt((f.horasHielo + f.horasFrio) / anos)} h/año (${f.conHumedad ? `hielo ${fmt(f.horasHielo / anos)} h, ` : "la serie no trae humedad para estimar el hielo; "}frío bajo ${fmt(num("#wt-tmin"))} °C ${fmt(f.horasFrio / anos)} h).` : "";
+  estadoTexto("#recurso-estado", `${nombreRecurso().replace(/\.$/, "")}. Factor de planta con los equipos elegidos: aerogenerador ${fmt(fp(s.wt, estado.equipos.wt.pr), 1)} %, panel ${fmt(fp(s.pv, estado.equipos.pv.pr), 1)} %.${frio}`, "ok");
   renderDistribucion();
 }
 
@@ -417,7 +427,7 @@ function distribucion() {
   if (cacheLayout.clave !== clave) Object.assign(cacheLayout, { clave, lay: zona.distribuirAerogeneradores(z.pts, op) });
   const lay = cacheLayout.lay;
   const paneles = zona.distribucionPaneles(z.centro[0], { areaPanelM2: pv.pr / (pv.eff / 100), aprovechamiento: Math.min(1, Math.max(0.1, num("#lay-aprov") / 100)) });
-  const estela = cacheEstela.lay === lay && cacheEstela.wt === JSON.stringify(wt) && cacheEstela.fuente === fuenteViento() ? cacheEstela.val : null;
+  const estela = cacheEstela.lay === lay && cacheEstela.wt === JSON.stringify(wtModelo()) && cacheEstela.fuente === fuenteViento() ? cacheEstela.val : null;
   return {
     ...lay, paneles, op, estela, posiciones: estela ? estela.orden : lay.posiciones,
     nWt: lay.demasiadas ? Math.floor(z.area / lay.celdaM2) : lay.posiciones.length,
@@ -430,9 +440,9 @@ async function estelaActual(d) {
   if (!d || d.demasiadas || !d.posiciones.length || !estado.arq.wt) return null;
   const clima = estado.recurso === "tesis" ? (await dem.datosEjemplo()).era5 : await climaActual();
   if (!clima) return null;
-  const lay = cacheLayout.lay, wt = JSON.stringify(estado.equipos.wt);
+  const lay = cacheLayout.lay, wt = JSON.stringify(wtModelo());
   if (cacheEstela.lay !== lay || cacheEstela.wt !== wt || cacheEstela.fuente !== fuenteViento()) {
-    const val = zona.estelaParque(estado.zona.pts, lay.posiciones, { D: d.op.D, wt: estado.equipos.wt, clima, eje: d.op.eje });
+    const val = zona.estelaParque(estado.zona.pts, lay.posiciones, { D: d.op.D, wt: wtModelo(), clima, eje: d.op.eje });
     Object.assign(cacheEstela, { lay, wt, fuente: fuenteViento(), val });
   }
   return cacheEstela.val;
@@ -655,7 +665,7 @@ class Pool {
   constructor(n) {
     this.pend = new Map(); this.id = 0;
     this.workers = Array.from({ length: n }, () => {
-      const w = new Worker(new URL("./worker.js?v=20261016b", import.meta.url), { type: "module" });
+      const w = new Worker(new URL("./worker.js?v=20261016c", import.meta.url), { type: "module" });
       w.onmessage = (e) => {
         const p = this.pend.get(e.data.id);
         if (!p) return;
@@ -726,7 +736,7 @@ async function armarCaso() {
     if (cacheSombra.orden !== pos || cacheSombra.clave !== clave) Object.assign(cacheSombra, { orden: pos, clave, val: zona.interaccionPV(estado.zona.pts, pos, op, rel) });
     campoFV = { ...cacheSombra.val, m2Panel: d.paneles.m2PorPanel };
   }
-  return { demanda: Array.from(estado.demanda), wtKw: Array.from(s.wt), pvKw: Array.from(s.pv), equipos: clonar(estado.equipos), economia: leerEconomia(),
+  return { demanda: Array.from(estado.demanda), wtKw: Array.from(s.wt), pvKw: Array.from(s.pv), equipos: equiposModelo(), economia: leerEconomia(),
     perdidas: leerPerdidas(), h2: leerH2(), terreno: t && { area: t.area, aWt: t.aWt, aPv: t.aPv }, estela: est && { eta: est.eta, sec: est.sec, S: est.S, nMax: est.nMax }, campoFV };
 }
 
@@ -1104,7 +1114,7 @@ function capa3d() {
   const wt = d.equipos.wt;
   const rej = tipo === "viento" ? { ...v.rejilla, n: 160 } : v.rejilla;    // el viento, más fino: las estelas son angostas
   const sol = { lat: zona.centro(d.pts)[0], beta: d.beta, gcr: d.largoMesa / d.pitchM, gti: d.clima.gti_wm2, turb: d.geo.turb, hub: wt.hub, D: wt.rotor };
-  d.mapas[tipo] ??= tipo === "viento" ? zona.mapaViento(rej, { turb: d.geo.turb, D: wt.rotor, hub: wt.hub, clima: d.clima, eje: d.eje })
+  d.mapas[tipo] ??= tipo === "viento" ? zona.mapaViento(rej, { turb: d.geo.turb, D: wt.rotor, hub: wt.hub, clima: d.clima, eje: d.eje, wt: { ...wt, curva: $("#wt-curva").value } })
     : tipo === "panel" ? zona.mapaPanelFV(rej, sol) : zona.mapaSolar(rej, sol);
   const c = CAPAS[tipo], r = v.capa(d.mapas[tipo], c.paleta, zona.rangoEnZona(rej, d.mapas[tipo], d.geo.poli));
   $("#v3-escala-titulo").textContent = `${c.titulo}. Escala dentro de la zona:`;
@@ -1122,7 +1132,7 @@ async function mostrar3D(op) {
   const ley = $("#leyenda-3d"); ley.replaceChildren();
   const chip = (color, texto) => { const s = document.createElement("span"), i = document.createElement("i"); i.style.background = color; s.append(i, texto); ley.appendChild(s); };
   try {
-    const m = await import("./escena3d.js?v=20261016b");
+    const m = await import("./escena3d.js?v=20261016c");
     chip("#FF8A3D", "Zona");
     if (op.cfg[0]) chip("#F7F8FA", `Aerogeneradores (${fmt(op.cfg[0])})`);
     if (op.cfg[1]) chip("#2456A6", `Paneles (${fmt(op.cfg[1])})`);
@@ -1209,6 +1219,7 @@ async function cargarCasoTesis() {
   $("#eco-dn").value = 8; $("#eco-ie").value = 3; $("#eco-anios").value = 20; $("#eco-reserva").value = 10; $("#eco-diesel").value = 1;
   $("#per-disp-wt").value = $("#per-disp-pv").value = 100; $("#per-degr").value = 0;    // la tesis no las considera
   ["#h2-ele-min", "#h2-ele-aux", "#h2-comp", "#h2-fc-min", "#h2-fc-aux"].forEach((s) => { $(s).value = 0; });
+  $("#wt-curva").value = "lineal"; $("#wt-tmin").value = -60; $("#wt-hielo").checked = false;
   $("#conf-tipo").value = "lole"; $("#conf-h").value = 0; $("#conf-energia").checked = false;
   $('input[name="modo"][value="uno"]').checked = true; $("#obj-unico").value = "lcoe";
   $("#pen-exc").value = 0; $("#pen-h2").value = 0;
@@ -1272,6 +1283,7 @@ function iniciar() {
   }));
   $("#v3-repetir").addEventListener("click", () => vista3d?.repetir());
   $("#v3-capa").addEventListener("change", capa3d);
+  ["#wt-curva", "#wt-tmin", "#wt-hielo"].forEach((s) => $(s).addEventListener("change", () => { describirRecurso(); cambiosGenerales(); }));
   $("#v3-superior").addEventListener("click", () => vista3d?.superior());
   $("#v3-girar").addEventListener("click", (e) => {
     if (!vista3d) return;

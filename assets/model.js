@@ -19,6 +19,8 @@ export const FUENTES = {
   energies2023: { texto: "Energies 16(9):3893 (2023)", url: "https://doi.org/10.3390/en16093893" },
   yue2021: { texto: "Yue et al. (2021), Renew. Sustain. Energy Rev. 146:111180", url: "https://doi.org/10.1016/j.rser.2021.111180" },
   ficha: { texto: "Ficha técnica del fabricante; costos referenciales", url: "" },
+  swcc2022: { texto: "ICC-SWCC, informe SWCC-10-12 (2022): curva de potencia certificada del Bergey Excel 10", url: "https://smallwindcertification.org/wp-content/uploads/2022/04/SWCC-10-12-Summary-Report-20220406.pdf" },
+  nps2020: { texto: "Northern Power, ficha NPS 100C-24 (ed. 2020): curva de potencia", url: "https://www.northernpower.com/wpd2/wp-content/uploads/2025/11/brochure-NPS-100C-24_ed2020_light_ENG.pdf" },
   ref: { texto: "Valores referenciales: revisar antes de usar", url: "" },
 };
 
@@ -32,11 +34,16 @@ export const CATALOGO = {
     { id: "eolica2", nombre: "Eolica · 2 kW (Energies 2022)", pr: 2, vcin: 2, vr: 9, vcout: 20, hub: 20, rotor: 3.2,
       ci: 4000, rep: 4000, om: 80, vu: 24, fuente: "energies2022" },
     { id: "bergey10", nombre: "Bergey Excel 10 · 10 kW", pr: 10, vcin: 3.4, vr: 11, vcout: 20, hub: 24, rotor: 7,
-      ci: 65000, rep: 50000, om: 1300, vu: 20, fuente: "ficha" },
+      ci: 65000, rep: 50000, om: 1300, vu: 20, fuente: "ficha",
+      // Curva certificada a 1,225 kg/m³ (W → kW; la potencia negativa de consumo propio bajo 2 m/s se toma como 0).
+      curvaReal: { fuente: "swcc2022", v: [2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10, 10.5, 11, 11.5, 12, 12.5, 13, 13.5, 14, 14.5, 15, 15.5, 16, 16.5, 17, 17.5, 18, 18.5, 19, 19.5, 20, 20.5],
+        p: [0, 0.039, 0.102, 0.229, 0.399, 0.596, 0.848, 1.151, 1.51, 1.938, 2.403, 2.949, 3.602, 4.306, 5.071, 5.96, 6.856, 7.849, 8.863, 9.928, 10.885, 11.619, 12.019, 12.276, 12.395, 12.449, 12.495, 12.508, 12.546, 12.555, 12.503, 12.528, 12.442, 12.396, 12.208, 11.878, 11.989, 11.495] } },
     { id: "eocycle22", nombre: "Eocycle EOX S-16 · 22 kW", pr: 22, vcin: 2.75, vr: 11, vcout: 25, hub: 24, rotor: 16,
       ci: 150000, rep: 120000, om: 3000, vu: 20, fuente: "ficha" },
     { id: "nps100", nombre: "Northern Power NPS 100C-24 · 95 kW", pr: 95, vcin: 3, vr: 12, vcout: 25, hub: 37, rotor: 24.4,
-      ci: 450000, rep: 380000, om: 9000, vu: 20, fuente: "ficha" },
+      ci: 450000, rep: 380000, om: 9000, vu: 20, fuente: "ficha",
+      // Curva del fabricante a 1,225 kg/m³, de 1 a 25 m/s (la potencia negativa bajo 3 m/s se toma como 0).
+      curvaReal: { fuente: "nps2020", v: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25], p: [0, 0, 1.2, 7.2, 14.5, 24.7, 37.9, 58.7, 74.8, 85.1, 90.2, 94.7, 95.3, 95.1, 94.2, 92.9, 91.2, 88.9, 87.1, 84.1, 81.3, 78.6, 76.1, 74.3, 71.7] } },
   ],
   pv: [
     { id: "cs6u330", nombre: "Canadian Solar CS6U-330P · 330 W (caso de ejemplo)", pr: 0.33, eff: 16.97, alfa: -0.41, noct: 45, fpv: 0.8,
@@ -113,7 +120,19 @@ export function potenciaPV(pv, gti, tempC) {
 }
 
 // Aerogenerador (ec. 2.2.4 a 2.2.6): viento a la altura del buje (ley potencial con el perfil 10-100 m de cada hora),
-// curva lineal entre la velocidad de arranque y la nominal, y corrección por densidad del aire.
+// curva entre la velocidad de arranque y la nominal, y corrección por densidad del aire. La curva es lineal, como en
+// la tesis; cúbica (wt.curva = "cubica"): P = Pr · (v³ − v_arr³) / (v_nom³ − v_arr³); o la tabla del fabricante
+// (wt.curva = "fabricante" y wt.curvaReal), interpolada. Sin tabla, "fabricante" usa la lineal. Ninguna forma genérica
+// sirve para todos: a 7 m/s el Bergey Excel 10 certificado da 2,4 kW (lineal 4,7; cúbica 2,35) y el NPS 100C da
+// 37,9 kW (lineal 42,2; cúbica 17,6).
+// Potencia máxima de una unidad: la nominal, o el máximo de la tabla del fabricante (puede superar la nominal).
+export const topeWT = (wt) => (wt.curva === "fabricante" && wt.curvaReal ? Math.max(...wt.curvaReal.p) : wt.pr);
+function interpolar({ v, p }, x) {
+  if (x <= v[0]) return x === v[0] ? p[0] : 0;
+  for (let i = 1; i < v.length; i++) if (x <= v[i]) return p[i - 1] + ((p[i] - p[i - 1]) * (x - v[i - 1])) / (v[i] - v[i - 1]);
+  return p[p.length - 1];
+}
+
 // Viento a la altura del buje en la hora t (ley potencial con el exponente de esa hora).
 export function vientoBuje(hub, v10, v100, t) {
   let a = 1 / 7;
@@ -123,16 +142,31 @@ export function vientoBuje(hub, v10, v100, t) {
 
 // f: fracción del viento que llega (1 − déficit por estela).
 export function potenciaWT(wt, v10, v100, tempC, presionHpa, f = 1) {
-  const out = new Float64Array(v10.length);
+  const out = new Float64Array(v10.length), tabla = wt.curva === "fabricante" && wt.curvaReal, tope = topeWT(wt);
   for (let t = 0; t < v10.length; t++) {
     const v = f * vientoBuje(wt.hub, v10, v100, t);
     let p = 0;
-    if (v > wt.vcin && v < wt.vr) p = wt.pr * (v - wt.vcin) / (wt.vr - wt.vcin);
+    if (tabla) p = v < wt.vcout ? interpolar(tabla, v) : 0;
+    else if (v > wt.vcin && v < wt.vr) p = wt.curva === "cubica" ? (wt.pr * (v ** 3 - wt.vcin ** 3)) / (wt.vr ** 3 - wt.vcin ** 3) : (wt.pr * (v - wt.vcin)) / (wt.vr - wt.vcin);
     else if (v >= wt.vr && v < wt.vcout) p = wt.pr;
     const rho = (presionHpa[t] * 100) / (287.05 * (tempC[t] + 273.15));
-    out[t] = Math.min(p * rho / 1.225, wt.pr);
+    out[t] = Math.min(p * rho / 1.225, tope);
   }
   return out;
+}
+
+// Aerogenerador detenido por frío extremo (bajo su temperatura mínima de operación) o con hielo en las palas. El hielo
+// se forma en horas con T ≤ 0 °C y humedad relativa ≥ 95 % (criterio de engelamiento meteorológico de la IEA Wind
+// Task 19) y queda en las palas hasta que la temperatura sube de +1 °C. Sin humedad en la serie, solo el frío.
+// ponytail: detención total con hielo; los equipos con calefacción de palas pierden menos.
+export function factorFrio(clima, { tMin = -20, hielo = true } = {}) {
+  const T = clima.temp_c, H = clima.hr_pct, f = new Float64Array(T.length).fill(1);
+  let conHielo = false, horasHielo = 0, horasFrio = 0;
+  for (let t = 0; t < T.length; t++) {
+    if (hielo && H) { if (T[t] <= 0 && H[t] >= 95) conHielo = true; else if (T[t] > 1) conHielo = false; }
+    if (T[t] < tMin) { f[t] = 0; horasFrio++; } else if (hielo && conHielo) { f[t] = 0; horasHielo++; }
+  }
+  return { f, horasHielo, horasFrio, conHumedad: !!H };
 }
 
 /* ---------- Economía (params.py y funciones.py) ---------- */
@@ -193,7 +227,7 @@ export function prepararCaso({ demanda, wtKw, pvKw, equipos, economia, terreno =
   const fWt = perdidas?.wt ?? 1, fPv = perdidas?.pv ?? 1;
   for (let t = 0; t < n; t++) {
     D[t] = demanda[t % nD] * (1 + eco.reserva);
-    WT[t] = wtKw ? Math.min(wtKw[t], eq.wt.pr) * fWt : 0;     // la tesis recorta a la potencia nominal
+    WT[t] = wtKw ? Math.min(wtKw[t], topeWT(eq.wt)) * fWt : 0;     // la tesis recorta a la potencia nominal
     PV[t] = pvKw ? Math.min(pvKw[t], eq.pv.pr) * fPv : 0;
     sumaD += D[t]; if (D[t] > maxD) maxD = D[t];
   }
@@ -377,7 +411,9 @@ export function simular(caso, cfg, completo = false) {
   let vidaBat = null, ciclosBat = 0, vidaDg = null, npcBat = 0, npcDg = 0, costoDieselAnual = 0;
   if (nBat > 0) {
     ciclosBat = batSale / Math.max(1e-9, capBat * (1 - B.socMin));          // ciclos equivalentes completos al año
-    vidaBat = Math.min(B.vu, ciclosBat > 0 ? B.ciclos / ciclosBat : B.vu);
+    // Desgaste por calendario y por ciclos a la vez: cada año se pierde 1/vu de la vida por tiempo y ciclos/ciclosVida
+    // por uso, y la batería se reemplaza cuando la suma llega a 1.
+    vidaBat = 1 / (1 / B.vu + ciclosBat / B.ciclos);
     npcBat = nBat * npcUnidad({ ...B, vu: vidaBat }, caso.df, caso.anios);
     npc += npcBat; capex += nBat * B.ci;
   }

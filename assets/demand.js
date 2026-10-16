@@ -1,6 +1,6 @@
 // Series de entrada: demanda horaria (8760 h) y recurso meteorológico.
-import { rng } from "./optimizers.js?v=20261016b";
-import { decodificarSerie } from "./codec.js?v=20261016b";
+import { rng } from "./optimizers.js?v=20261016c";
+import { decodificarSerie } from "./codec.js?v=20261016c";
 
 export const HORAS = 8760;
 
@@ -79,7 +79,7 @@ export async function climaOpenMeteo({ lat, lon, anio, anios = 1 }) {
   const inclinacion = Math.min(60, Math.round(Math.abs(lat)));
   const params = new URLSearchParams({
     latitude: lat, longitude: lon, start_date: `${anio - anios + 1}-01-01`, end_date: `${anio}-12-31`,
-    hourly: "temperature_2m,surface_pressure,wind_speed_10m,wind_speed_100m,wind_direction_100m,global_tilted_irradiance",
+    hourly: "temperature_2m,relative_humidity_2m,surface_pressure,wind_speed_10m,wind_speed_100m,wind_direction_100m,global_tilted_irradiance,shortwave_radiation,direct_normal_irradiance,diffuse_radiation",
     tilt: inclinacion, azimuth: lat < 0 ? 180 : 0, wind_speed_unit: "ms", timezone: "auto",
   });
   const resp = await fetch(`https://archive-api.open-meteo.com/v1/archive?${params}`);
@@ -92,9 +92,11 @@ export async function climaOpenMeteo({ lat, lon, anio, anios = 1 }) {
     temp_c: limpiar(h.temperature_2m), presion_hpa: limpiar(h.surface_pressure),
     v10_ms: limpiar(h.wind_speed_10m), v100_ms: limpiar(h.wind_speed_100m), gti_wm2: limpiar(h.global_tilted_irradiance),
     dir100_deg: limpiar(h.wind_direction_100m),
+    hr_pct: limpiar(h.relative_humidity_2m), ghi_wm2: limpiar(h.shortwave_radiation), dni_wm2: limpiar(h.direct_normal_irradiance), dhi_wm2: limpiar(h.diffuse_radiation),
   };
   if (clima.gti_wm2.length < total) throw new Error("Open-Meteo no entregó todos los años pedidos para ese punto.");
   Object.assign(clima, ejeViento(h.wind_speed_100m, h.wind_direction_100m));
+  Object.assign(clima, { lat: d.latitude, lon: d.longitude, utcLocal: -d.utc_offset_seconds / 3600 });   // hora UTC = local + utcLocal
   return { clima, nombre: `ERA5 · ${lat.toFixed(2)}°, ${lon.toFixed(2)}° · ${anios > 1 ? `${anio - anios + 1}-` : ""}${anio}`, punto: [d.latitude, d.longitude] };
 }
 
