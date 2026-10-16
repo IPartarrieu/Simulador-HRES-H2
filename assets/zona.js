@@ -5,7 +5,7 @@
 // ponytail: rectángulo que cubre las cuatro regiones, no su límite exacto; usar un GeoJSON regional si hace falta precisión.
 export const REGION = { latMin: -39.7, latMax: -34.6, lonMin: -74.0, lonMax: -70.3 };
 export const AREA_MAX_KM2 = 25;          // límite para que la zona sea un terreno, no una comuna entera
-import { potenciaWT, vientoBuje } from "./model.js?v=20261016e";
+import { potenciaWT, vientoBuje } from "./model.js?v=20261016f";
 
 const R = 6378137;
 const rad = (g) => (g * Math.PI) / 180, grados = (r) => (r * 180) / Math.PI;
@@ -184,7 +184,7 @@ function distSegmento([px, py], [ax, ay], [bx, by]) {
 // filas alineadas y escalonadas con varios desfases y se queda con la que cabe más. Las posiciones vuelven
 // ordenadas por fila transversal al viento, desde la más cercana al centro de la zona: con pocos equipos se llena
 // primero una fila (sin estelas entre ellos) y quedan cerca del bloque de potencia.
-export function distribuirAerogeneradores(pts, { D, sx = 7, sy = 4, retiro = 0, eje = 0, max = 20000 }) {
+export function distribuirAerogeneradores(pts, { D, sx = 7, sy = 4, retiro = 0, eje = 0, max = 80000 }) {
   const pr = proyeccion(centro(pts)), poli = pts.map(pr.a);
   const u = [Math.sin(rad(eje)), Math.cos(rad(eje))], w = [u[1], -u[0]];     // a lo largo y a lo ancho del viento
   const loc = poli.map(([x, y]) => [x * u[0] + y * u[1], x * w[0] + y * w[1]]);

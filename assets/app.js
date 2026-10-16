@@ -1,10 +1,10 @@
 // Página del Simulador HRES-H2: arma el caso con lo que elige la persona, reparte las simulaciones entre
 // Web Workers, ejecuta el método de optimización (uno o varios objetivos) y muestra los resultados.
-import { CATALOGO, MODULOS, NOMBRES, ECONOMIA_TESIS, FUENTES, OBJETIVOS_MO, potenciaPV, potenciaWT, factorFrio, radiacionPanel, inclinacionOptima, limitesPorDefecto, flujoCaja, crf, tasaReal } from "./model.js?v=20261016e";
-import { monteCarlo, genetico, shade, pso, gwo, woa, eo, nsga2, mopso, aptitud, PENALIZACION } from "./optimizers.js?v=20261016e";
-import * as dem from "./demand.js?v=20261016e";
-import { svgDiagrama, svgLayout, descargarSVG, descargarPNG, descargar } from "./diagram.js?v=20261016e";
-import * as zona from "./zona.js?v=20261016e";
+import { CATALOGO, MODULOS, NOMBRES, ECONOMIA_TESIS, FUENTES, OBJETIVOS_MO, potenciaPV, potenciaWT, factorFrio, radiacionPanel, inclinacionOptima, limitesPorDefecto, flujoCaja, crf, tasaReal } from "./model.js?v=20261016f";
+import { monteCarlo, genetico, shade, pso, gwo, woa, eo, nsga2, mopso, aptitud, PENALIZACION } from "./optimizers.js?v=20261016f";
+import * as dem from "./demand.js?v=20261016f";
+import { svgDiagrama, svgLayout, descargarSVG, descargarPNG, descargar } from "./diagram.js?v=20261016f";
+import * as zona from "./zona.js?v=20261016f";
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -115,6 +115,7 @@ const METODOS = {
 };
 
 const estado = {
+  optEquipo: {},                     // módulos en que el optimizador elige el equipo
   demanda: null, demandaNombre: "", demandaTipo: "ejemplo",
   recurso: "tesis", clima: null, climaNombre: "",
   arq: { wt: true, pv: true, hess: true, bat: false, dg: false },
@@ -199,6 +200,30 @@ function nombreRecurso() {
   if (estado.recurso === "tesis") return "Series de ejemplo lat. 45°S (2018)";
   if (estado.recurso === "era5") return "ERA5 de ejemplo lat. 45°S (2018)";
   return estado.climaNombre;
+}
+
+// Equipos candidatos de un módulo: el elegido en la página primero y, si el optimizador elige el equipo, el resto del
+// catálogo. Con las series de ejemplo de lat. 45°S, el aerogenerador y el panel quedan fijos.
+function candidatos(k) {
+  const sel = estado.equipos[k];
+  if (!estado.optEquipo[k] || !moduloActivo(k) || (estado.recurso === "tesis" && (k === "wt" || k === "pv"))) return [sel];
+  return [sel, ...CATALOGO[k].filter((d) => d.id !== sel.id).map(clonar)];
+}
+const optimizaEquipos = () => MODULOS.some((k) => candidatos(k).length > 1);
+
+// Lo que necesita mostrar un resultado con los equipos que eligió el optimizador (índices 8-15 de la configuración).
+function snapElegido(snap, cfg) {
+  if (!snap.cand || !cfg || cfg.length <= 8) return snap;
+  const equipos = { ...snap.equipos };
+  MODULOS.forEach((k, i) => { const e = snap.cand.equipos[k]?.[cfg[8 + i]]; if (cfg[8 + i] && e) equipos[k] = e; });
+  let dist = snap.dist, terreno = snap.terreno && { ...snap.terreno };
+  if (dist && cfg[8]) {
+    const wt = equipos.wt;          // sin grilla propia (demasiadas posiciones): se avisa en vez de dibujar la de otro equipo
+    dist = snap.cand.dist[cfg[8]] || { ...dist, posiciones: [], demasiadas: true, op: { ...dist.op, D: wt.rotor } };
+  }
+  if (dist && cfg[9] && snap.cand.paneles[cfg[9]]) dist = { ...dist, paneles: snap.cand.paneles[cfg[9]] };
+  if (terreno && dist) Object.assign(terreno, { aWt: snap.arq.wt ? zona.areaExclusiva(dist.op) : 0, aPv: snap.arq.pv ? dist.paneles.m2PorPanel : 0 });
+  return { ...snap, equipos, dist, terreno };
 }
 
 // Aerogenerador con la forma de curva elegida (lineal como la tesis, o cúbica).
@@ -355,6 +380,12 @@ function renderEquipos() {
       renderEquipos(); await describirRecurso(); cambiosGenerales();
     });
     div.appendChild(sel);
+    const lab = document.createElement("label"), chk = document.createElement("input");
+    lab.className = "check"; chk.type = "checkbox"; chk.checked = !!estado.optEquipo[k];
+    chk.disabled = !activo || bloqueado || estado.corriendo;
+    chk.addEventListener("change", () => { estado.optEquipo[k] = chk.checked; cambiosGenerales(); });
+    lab.append(chk, ` Que el optimizador elija entre los ${CATALOGO[k].length} del catálogo`);
+    div.appendChild(lab);
     const fuente = fuenteEquipo(eq); if (fuente) div.appendChild(fuente);
     if (bloqueado) { const p = document.createElement("p"); p.className = "nota"; p.textContent = "Las series de ejemplo corresponden a este equipo. Para comparar marcas, usa un clima ERA5 o tus propias series."; div.appendChild(p); }
     const det = document.createElement("details");
@@ -626,11 +657,14 @@ function limitesAutomaticos() {
   if (!estado.demanda) return null;
   const e = leerEconomia();
   let maxD = 0; for (const v of estado.demanda) if (v > maxD) maxD = v;
-  const q = estado.equipos;
+  // Con varios candidatos, los límites de cantidad son los del equipo más chico de cada módulo.
+  const menor = (k, campo) => candidatos(k).reduce((a, b) => (b[campo] < a[campo] ? b : a));
+  const q = { wt: menor("wt", "pr"), pv: menor("pv", "pr"), con: menor("con", "pr"), ele: menor("ele", "pr"), ht: menor("ht", "cap"), fc: menor("fc", "pr"), bat: menor("bat", "cap"), dg: menor("dg", "pr") };
   const caso = { maxD: maxD * (1 + e.reserva), wtPr: q.wt.pr, pvPr: q.pv.pr, con: q.con, ele: q.ele, ht: q.ht, fc: q.fc, bat: q.bat, dg: q.dg };
   const lim = limitesPorDefecto(caso, estado.arq, esCasoTesis());
   const t = terreno();
-  if (t) { lim[0][1] = Math.min(lim[0][1], t.nWt); lim[1][1] = Math.min(lim[1][1], t.nPv); }
+  if (t && candidatos("wt").length === 1) lim[0][1] = Math.min(lim[0][1], t.nWt);   // con varios, la grilla de cada uno es una restricción
+  if (t && candidatos("pv").length === 1) lim[1][1] = Math.min(lim[1][1], t.nPv);
   return lim;
 }
 function renderLimites() {
@@ -690,7 +724,7 @@ class Pool {
   constructor(n) {
     this.pend = new Map(); this.id = 0;
     this.workers = Array.from({ length: n }, () => {
-      const w = new Worker(new URL("./worker.js?v=20261016e", import.meta.url), { type: "module" });
+      const w = new Worker(new URL("./worker.js?v=20261016f", import.meta.url), { type: "module" });
       w.onmessage = (e) => {
         const p = this.pend.get(e.data.id);
         if (!p) return;
@@ -761,8 +795,52 @@ async function armarCaso() {
     if (cacheSombra.orden !== pos || cacheSombra.clave !== clave) Object.assign(cacheSombra, { orden: pos, clave, val: zona.interaccionPV(estado.zona.pts, pos, op, rel) });
     campoFV = { ...cacheSombra.val, m2Panel: d.paneles.m2PorPanel };
   }
+  const cand = optimizaEquipos() ? await armarCandidatos(d) : null;
+  estado.candSnap = cand && cand.snap;
   return { demanda: Array.from(estado.demanda), wtKw: Array.from(s.wt), pvKw: Array.from(s.pv), equipos: equiposModelo(), economia: leerEconomia(),
-    perdidas: leerPerdidas(), h2: leerH2(), terreno: t && { area: t.area, aWt: t.aWt, aPv: t.aPv }, estela: est && { eta: est.eta, sec: est.sec, S: est.S, nMax: est.nMax }, campoFV };
+    perdidas: leerPerdidas(), h2: leerH2(), terreno: t && { area: t.area, aWt: t.aWt, aPv: t.aPv, nWtMax: t.nWt },
+    estela: est && { eta: est.eta, sec: est.sec, S: est.S, nMax: est.nMax }, campoFV, candidatos: cand && cand.modelos };
+}
+
+// Series, estelas, campo solar y terreno de cada equipo candidato (la posición 0 es el caso base). Los aerogeneradores
+// tienen su propia grilla en la zona (la separación depende del rotor) y su propio orden por estelas y relieve.
+async function armarCandidatos(d) {
+  const modelos = {}, snap = { equipos: {}, dist: [], paneles: [] };
+  for (const k of MODULOS) { snap.equipos[k] = candidatos(k); modelos[k] = snap.equipos[k].map((eq, i) => (i ? { eq } : null)); }
+  const c = estado.recurso === "tesis" ? null : await climaActual(), pts = estado.zona?.pts;
+  const rel = d ? await zona.relieve(pts).catch(() => null) : null;
+  const lw = snap.equipos.wt;
+  for (let i = 1; i < lw.length; i++) {
+    $("#progreso-texto").textContent = `Preparando los aerogeneradores candidatos (${i} de ${lw.length - 1})…`;
+    await new Promise((r) => setTimeout(r, 0));
+    const wt = { ...lw[i], curva: $("#wt-curva").value }, p = potenciaWT(wt, c.v10_ms, c.v100_ms, c.temp_c, c.presion_hpa), frio = factorFrio(c, leerFrio());
+    for (let t = 0; t < p.length; t++) p[t] *= frio.f[t];
+    const m = modelos.wt[i];
+    m.wtKw = Array.from(p);
+    if (!d) continue;
+    const op = { ...d.op, D: wt.rotor, retiro: Math.max(0, num("#lay-retiro")) * (wt.hub + wt.rotor / 2) };
+    const lay = zona.distribuirAerogeneradores(pts, op);
+    m.terreno = { aWt: zona.areaExclusiva(op), nWtMax: lay.demasiadas ? Math.floor(estado.zona.area / lay.celdaM2) : lay.posiciones.length };
+    if (lay.demasiadas || !lay.posiciones.length) continue;
+    const e = zona.estelaParque(pts, lay.posiciones, { D: wt.rotor, wt, clima: c, eje: op.eje, rel });
+    m.estela = { eta: e.eta, sec: e.sec, S: e.S, nMax: e.nMax };
+    if (estado.arq.pv) {
+      const pa = d.paneles, opF = { ...op, hub: wt.hub, beta: pa.beta, gcr: pa.gcr, seguidor: !!pa.seguidor, nMax: e.nMax };
+      m.campoFV = { ...zona.interaccionPV(pts, e.orden, opF, rel), m2Panel: pa.m2PorPanel };
+    }
+    snap.dist[i] = { ...d, op, posiciones: e.orden, estela: e, celdaM2: lay.celdaM2, demasiadas: false };
+  }
+  const lp = snap.equipos.pv;
+  for (let i = 1; i < lp.length; i++) {
+    const pv = lp[i], m = modelos.pv[i];
+    m.pvKw = Array.from(potenciaPV(pv, estado.poa, c.temp_c));
+    if (!d) continue;
+    const pa = zona.distribucionPaneles(estado.zona.centro[0], { areaPanelM2: pv.pr / (pv.eff / 100), aprovechamiento: Math.min(1, Math.max(0.1, num("#lay-aprov") / 100)),
+      montaje: montaje() === "seguidor" ? "seguidor" : "fija", beta: betaMontaje(), gcrSeg: gcrSeguidor() });
+    m.terreno = { aPv: pa.m2PorPanel }; m.m2Panel = pa.m2PorPanel;
+    snap.paneles[i] = pa;
+  }
+  return { modelos, snap };
 }
 
 let ultimoGrafico = 0;
@@ -819,6 +897,8 @@ async function optimizar() {
   const clave = $("#metodo").value, metodo = METODOS[clave], params = leerParams(), semilla = Math.max(1, Math.round(num("#opt-semilla")));
   const crit = leerCriterio();
   const limites = clonar(estado.limites);
+  // Equipo como variable: un índice por módulo (0 = el elegido en la página).
+  if (optimizaEquipos()) MODULOS.forEach((k) => limites.push([0, candidatos(k).length - 1]));
   bloquear(true); detener = false;
   $("#progreso").hidden = false; $("#progreso-barra").style.width = "0%"; $("#progreso-texto").textContent = "Preparando el caso…";
   const t0 = performance.now();
@@ -828,7 +908,7 @@ async function optimizar() {
     await pool.init(caso, crit);
     const evaluador = crearEvaluador(pool);
     const comun = { limites, evaluar: evaluador.evaluar, semilla, alProgresar: (p) => mostrarProgreso(p, t0, evaluador, crit), detenido: () => detener };
-    const snap = { equipos: clonar(estado.equipos), arq: clonar(estado.arq), economia: leerEconomia(), terreno: caso.terreno, zona: estado.zona, dist: distribucion() };
+    const snap = { equipos: clonar(estado.equipos), arq: clonar(estado.arq), economia: leerEconomia(), terreno: caso.terreno, zona: estado.zona, dist: distribucion(), cand: estado.candSnap };
     const meta = { metodo: metodo.nombre.replace(" · recomendado", ""), params, semilla, crit, snap, detenido: false };
     $("#pareto").hidden = true;
     if (metodo.mo) {
@@ -973,7 +1053,7 @@ function tituloDiagrama(r, meta) { return `LCOE ${fmt(r.lcoe, 4)} USD/kWh · LOL
 
 function mostrarResultados(cfg, r, meta, desplazarA = "#resultados") {
   const crit = meta.crit, cumple = r.viol === 0;
-  const { equipos, arq, economia } = meta.snap;
+  const { equipos, arq, economia } = snapElegido(meta.snap, cfg);
   const bloquearCSV = estado.demandaTipo === "ejemplo" || estado.demandaTipo === "sintetica";
   $("#dl-csv").disabled = bloquearCSV;
   $("#dl-csv").title = bloquearCSV ? "La demanda de la localidad remota es de terceros: sus series horarias no se descargan." : "";
@@ -1007,13 +1087,19 @@ function mostrarResultados(cfg, r, meta, desplazarA = "#resultados") {
       kpi("Costo del diésel", `${fmt(r.costoDieselAnual)} USD/año`, "combustible y mantención"),
       kpi("Emisiones", `${fmt(r.co2 / 1000, 1)} t CO₂/año`, `fracción renovable ${fmt(r.fraccionRenovable * 100, 1)} %`));
   }
-  const ter = meta.snap.terreno;
+  const ter = snapElegido(meta.snap, cfg).terreno;
   if (ter) {
     const usado = cfg[0] * ter.aWt + cfg[1] * ter.aPv;
     tarjetas.push(kpi("Terreno usado", `${fmt(usado / 1e4, 1)} ha`, `de ${fmt(ter.area / 1e4, 1)} ha (${fmt((usado / ter.area) * 100)} %)`, "", usado <= ter.area * 1.000001 ? ["Cabe", "ok"] : ["No cabe", "err"]));
   }
   if (pen && meta.obj !== undefined) { const n = nombreObjetivo(crit); tarjetas.push(kpi(n[0].toUpperCase() + n.slice(1), valorObjetivo(crit, meta.obj), "valor que se minimizó")); }
   $("#kpis").replaceChildren(...tarjetas);
+  // Equipos que eligió el optimizador (solo en los módulos con varios candidatos y que se usan).
+  const elegidos = meta.snap.cand && cfg.length > 8
+    ? MODULOS.map((k, i) => [k, i]).filter(([k, i]) => meta.snap.cand.equipos[k]?.length > 1 && cfg[i] > 0)
+      .map(([k]) => `${NOMBRES[k]}: ${equipos[k].nombre}`) : [];
+  $("#res-equipos").hidden = !elegidos.length;
+  $("#res-equipos").textContent = elegidos.length ? `Equipos elegidos por el optimizador — ${elegidos.join(" · ")}.` : "";
 
   const aviso = $("#aviso");
   aviso.hidden = cumple;
@@ -1080,7 +1166,7 @@ function mostrarResultados(cfg, r, meta, desplazarA = "#resultados") {
 
 // Figura con la ubicación de los equipos del resultado dentro de la zona.
 function renderLayoutResultado(cfg, r, meta) {
-  const { zona: z, dist, equipos, arq } = meta.snap;
+  const { zona: z, dist, equipos, arq } = snapElegido(meta.snap, cfg);
   estado.resultado.layoutSvg = null;
   $("#res-layout").hidden = false;
   $$("[data-layout]").forEach((btn) => { btn.disabled = !z || !dist; });
@@ -1160,7 +1246,7 @@ async function mostrar3D(op) {
   const ley = $("#leyenda-3d"); ley.replaceChildren();
   const chip = (color, texto) => { const s = document.createElement("span"), i = document.createElement("i"); i.style.background = color; s.append(i, texto); ley.appendChild(s); };
   try {
-    const m = await import("./escena3d.js?v=20261016e");
+    const m = await import("./escena3d.js?v=20261016f");
     chip("#FF8A3D", "Zona");
     if (op.cfg[0]) chip("#F7F8FA", `Aerogeneradores (${fmt(op.cfg[0])})`);
     if (op.cfg[1]) chip("#2456A6", `Paneles (${fmt(op.cfg[1])})`);
@@ -1239,6 +1325,7 @@ function descargarJSON() {
 /* ---------- Caso de ejemplo ---------- */
 
 async function cargarCasoTesis() {
+  estado.optEquipo = {};
   $('input[name="demanda"][value="ejemplo"]').checked = true;
   $('input[name="recurso"][value="tesis"]').checked = true;
   $("#arq-wt").checked = $("#arq-pv").checked = $("#arq-hess").checked = true;

@@ -19,6 +19,9 @@ export const FUENTES = {
   energies2023: { texto: "Energies 16(9):3893 (2023)", url: "https://doi.org/10.3390/en16093893" },
   yue2021: { texto: "Yue et al. (2021), Renew. Sustain. Energy Rev. 146:111180", url: "https://doi.org/10.1016/j.rser.2021.111180" },
   ficha: { texto: "Ficha técnica del fabricante; costos referenciales", url: "" },
+  kalantari2020: { texto: "Kalantari et al. (2020), Energies 13(23):6365, Tabla 2", url: "https://doi.org/10.3390/en13236365" },
+  amoussou2023: { texto: "Amoussou et al. (2023), Sustainability 15(15):11510, Tabla A1", url: "https://doi.org/10.3390/su151511510" },
+  dehouche2023: { texto: "Dehouche y Garner (2023), Energies 16(21):7363, Tablas 2 y 3 (EUR a USD con 1 EUR = 1,08 USD)", url: "https://doi.org/10.3390/en16217363" },
   swcc2022: { texto: "ICC-SWCC, informe SWCC-10-12 (2022): curva de potencia certificada del Bergey Excel 10", url: "https://smallwindcertification.org/wp-content/uploads/2022/04/SWCC-10-12-Summary-Report-20220406.pdf" },
   nps2020: { texto: "Northern Power, ficha NPS 100C-24 (ed. 2020): curva de potencia", url: "https://www.northernpower.com/wpd2/wp-content/uploads/2025/11/brochure-NPS-100C-24_ed2020_light_ENG.pdf" },
   ref: { texto: "Valores referenciales: revisar antes de usar", url: "" },
@@ -44,6 +47,9 @@ export const CATALOGO = {
       ci: 450000, rep: 380000, om: 9000, vu: 20, fuente: "ficha",
       // Curva del fabricante a 1,225 kg/m³, de 1 a 25 m/s (la potencia negativa bajo 3 m/s se toma como 0).
       curvaReal: { fuente: "nps2020", v: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25], p: [0, 0, 1.2, 7.2, 14.5, 24.7, 37.9, 58.7, 74.8, 85.1, 90.2, 94.7, 95.3, 95.1, 94.2, 92.9, 91.2, 88.9, 87.1, 84.1, 81.3, 78.6, 76.1, 74.3, 71.7] } },
+    // Gran escala (3 MW); el rotor de 150 m sale del nombre del modelo (GW 150).
+    { id: "gw150", nombre: "Goldwind GW 150 · 3 MW (Amoussou et al. 2023)", pr: 3000, vcin: 2.5, vr: 9, vcout: 18, hub: 95, rotor: 150,
+      ci: 4372500, rep: 4372500, om: 131175, vu: 20, fuente: "amoussou2023" },
   ],
   pv: [
     { id: "cs6u330", nombre: "Canadian Solar CS6U-330P · 330 W (caso de ejemplo)", pr: 0.33, eff: 16.97, alfa: -0.41, noct: 45, fpv: 0.8,
@@ -56,30 +62,46 @@ export const CATALOGO = {
       ci: 269.3, rep: 269.3, om: 0, vu: 30, fuente: "ficha" },
     { id: "trina405", nombre: "Trina Vertex S · 405 W", pr: 0.405, eff: 21.1, alfa: -0.34, noct: 43, fpv: 0.8,
       ci: 253.6, rep: 253.6, om: 0, vu: 30, fuente: "ficha" },
+    { id: "longi450", nombre: "LONGi LR4-72HPH-450M · 450 W (Amoussou et al. 2023)", pr: 0.45, eff: 20.7, alfa: -0.35, noct: 45, fpv: 0.95,
+      ci: 424.2, rep: 424.2, om: 4.24, vu: 25, fuente: "amoussou2023" },
+    { id: "pv400d", nombre: "Panel 400 W, 20 % (Dehouche y Garner 2023)", pr: 0.4, eff: 20, alfa: -0.3, noct: 42, fpv: 0.8,
+      ci: 1080, rep: 1080, om: 12.96, vu: 20, fuente: "dehouche2023" },
   ],
   con: [
     { id: "conv1", nombre: "Conversor genérico · 1 kW, 95 % (caso de ejemplo)", pr: 1, eta: 0.95, ci: 300, rep: 300, om: 0, vu: 15, fuente: "tesis" },
     { id: "conv5", nombre: "Inversor bidireccional · 5 kW, 97 %", pr: 5, eta: 0.97, ci: 1750, rep: 1750, om: 0, vu: 15, fuente: "ref" },
+    { id: "conv5k", nombre: "Conversor · 5 kW, 95 % (Kalantari et al. 2020)", pr: 5, eta: 0.95, ci: 1500, rep: 1500, om: 0, vu: 15, fuente: "kalantari2020" },
   ],
   ele: [
     { id: "pem3", nombre: "PEM · 3 kW, 74 % (Zhang et al.)", pr: 3, eta: 0.74, ci: 4500, rep: 700, om: 0, vu: 5, fuente: "tesis" },
     { id: "ael5", nombre: "Alcalino (AEL) · 5 kW, 68 % (Yue et al. 2021)", pr: 5, eta: 0.68, ci: 5000, rep: 1750, om: 50, vu: 10, fuente: "yue2021" },
     { id: "pem5", nombre: "PEM actual · 5 kW, 60 % (Yue et al. 2021)", pr: 5, eta: 0.60, ci: 7000, rep: 2100, om: 70, vu: 10, fuente: "yue2021" },
+    { id: "pem5k", nombre: "PEM · 5 kW, 75 % (Kalantari et al. 2020)", pr: 5, eta: 0.75, ci: 5500, rep: 4125, om: 0, vu: 10, fuente: "kalantari2020" },
+    { id: "ele5a", nombre: "Electrolizador · 5 kW, 77 % (Amoussou et al. 2023)", pr: 5, eta: 0.77, ci: 5000, rep: 5000, om: 72.4, vu: 20, fuente: "amoussou2023" },
+    { id: "aem5", nombre: "AEM · 5 kW, 68 % (Dehouche y Garner 2023)", pr: 5, eta: 0.68, ci: 8100, rep: 8100, om: 75.6, vu: 20, fuente: "dehouche2023" },
   ],
   ht: [
     { id: "tank03", nombre: "Tanque de H₂ · 0,3 kWh (Zhang et al.)", cap: 0.3, ci: 600, rep: 0, om: 5, vu: 20, fuente: "tesis" },
     { id: "tank1", nombre: "Tanque de H₂ tipo IV · 1 kWh", cap: 1, ci: 1500, rep: 0, om: 10, vu: 20, fuente: "ref" },
+    { id: "tank1kg", nombre: "Tanque de H₂ · 1 kg = 33,3 kWh (Amoussou et al. 2023)", cap: 33.33, ci: 414.04, rep: 414.04, om: 8.28, vu: 25, fuente: "amoussou2023" },
+    { id: "vaso1", nombre: "Recipiente de H₂ · 1 kWh (Dehouche y Garner 2023)", cap: 1, ci: 32.4, rep: 32.4, om: 0, vu: 20, fuente: "dehouche2023" },
   ],
   fc: [
     { id: "pemfc3", nombre: "Celda PEM · 3 kW, 50 % (Zhang et al.)", pr: 3, eta: 0.50, ci: 600, rep: 700, om: 0, vu: 5, fuente: "tesis" },
     { id: "pemfc5", nombre: "Celda estacionaria gran escala · 5 kW, 55 % (Yue et al. 2021)", pr: 5, eta: 0.55, ci: 7500, rep: 3000, om: 50, vu: 10, fuente: "yue2021" },
     { id: "sofc5", nombre: "Celda de óxido sólido (SOFC) · 5 kW, 60 %", pr: 5, eta: 0.60, ci: 15000, rep: 5000, om: 150, vu: 6, fuente: "ref" },
+    { id: "fc5k", nombre: "Celda · 5 kW, 50 % (Kalantari et al. 2020)", pr: 5, eta: 0.50, ci: 6720, rep: 5350, om: 0, vu: 5, fuente: "kalantari2020" },
+    { id: "fc5a", nombre: "Celda · 5 kW, 60 % (Amoussou et al. 2023)", pr: 5, eta: 0.60, ci: 3000, rep: 3000, om: 67.15, vu: 10, fuente: "amoussou2023" },
+    { id: "pemfc5d", nombre: "Celda PEM · 5 kW, 46 % (Dehouche y Garner 2023)", pr: 5, eta: 0.46, ci: 6480, rep: 6480, om: 70.2, vu: 20, fuente: "dehouche2023" },
   ],
   // Baterías (bus DC). etaC · etaD = eficiencia de ida y vuelta; socMin = 1 − profundidad de descarga;
   // cRate: potencia máxima por kWh; ciclos: ciclos equivalentes completos hasta el reemplazo; autod: autodescarga por hora.
   bat: [
     { id: "lfp1", nombre: "Litio LFP · 1 kWh, 95 % ida y vuelta", cap: 1, etaC: 0.975, etaD: 0.975, socMin: 0.1, cRate: 0.5, autod: 0.00005,
       ciclos: 6000, ci: 400, rep: 300, om: 5, vu: 15, fuente: "energies2023" },
+    // Profundidad de descarga, tasa C y autodescarga no vienen en el artículo: se usan las del LFP anterior.
+    { id: "lfp1d", nombre: "Litio LFP · 1 kWh, 95 %, 8000 ciclos (Dehouche y Garner 2023)", cap: 1, etaC: 0.9747, etaD: 0.9747, socMin: 0.1, cRate: 0.5, autod: 0.00005,
+      ciclos: 8000, ci: 354.24, rep: 354.24, om: 5.4, vu: 10, fuente: "dehouche2023" },
     { id: "nmc1", nombre: "Litio NMC · 1 kWh, 95 % ida y vuelta", cap: 1, etaC: 0.975, etaD: 0.975, socMin: 0.2, cRate: 1, autod: 0.0001,
       ciclos: 3500, ci: 350, rep: 280, om: 5, vu: 12, fuente: "energies2023" },
     { id: "plomo1", nombre: "Plomo-ácido · 1 kWh, 85 %, descarga 70 % (Energies 2022)", cap: 1, etaC: 0.922, etaD: 0.922, socMin: 0.3, cRate: 0.2, autod: 0.0001,
@@ -260,7 +282,11 @@ export function npcUnidad(dev, df, anios, anual = 0) {
 // de cada tecnología y degradación media de los paneles en la vida del proyecto). Sin ellos, igual que la tesis.
 // `h2` (opcional): operación real del hidrógeno (fracciones): electrolizador {cargaMin, aux}, compresión `comp`
 // (kWh eléctricos por kWh de H₂ guardado) y celda {cargaMin, aux}. Con todo en 0 se usa el despacho de la tesis.
-export function prepararCaso({ demanda, wtKw, pvKw, equipos, economia, terreno = null, estela = null, campoFV = null, perdidas = null, h2 = null }) {
+// `candidatos` (opcional): otros equipos que el optimizador puede elegir en cada módulo. La configuración pasa a tener
+// 16 valores: las 8 cantidades y el índice del equipo de cada módulo (0 = el elegido en la página). Por módulo:
+// wt: [{ eq, wtKw, estela, campoFV, terreno: { aWt, nWtMax } }], pv: [{ eq, pvKw, terreno: { aPv }, m2Panel }],
+// con, ele, ht, fc, bat, dg: [{ eq }]. La posición 0 de cada lista es la del caso base (puede ir vacía).
+export function prepararCaso({ demanda, wtKw, pvKw, equipos, economia, terreno = null, estela = null, campoFV = null, perdidas = null, h2 = null, candidatos = null }) {
   const eq = { bat: CATALOGO.bat[0], dg: CATALOGO.dg[0], ...equipos };
   const eco = { ...ECONOMIA_TESIS, ...economia };
   // Varios años de clima: las series de potencia traen N × 8760 horas y la demanda (un año) se repite.
@@ -292,7 +318,62 @@ export function prepararCaso({ demanda, wtKw, pvKw, equipos, economia, terreno =
     estela: estela && { eta: Float32Array.from(estela.eta), sec: estela.sec && Uint8Array.from(estela.sec), S: estela.S, nMax: estela.nMax },
     campoFV: campoFV && { ...campoFV, tabla: Float32Array.from(campoFV.tabla) },
     h2: h2 && (h2.ele.cargaMin || h2.ele.aux || h2.comp || h2.fc.cargaMin || h2.fc.aux) ? h2 : null,
+    mods: candidatos && armarModelos(candidatos, { df, anios: eco.anios, perdidas, n }),
   };
+}
+
+// Piezas del caso que cambian con el equipo de cada módulo (índice ≥ 1; la 0 es el caso base).
+const POS = { wt: 0, pv: 1, con: 2, ele: 3, ht: 4, fc: 5, bat: 6, dg: 7 };
+function armarModelos(cand, { df, anios, perdidas, n }) {
+  const mods = {};
+  for (const k of MODULOS) {
+    mods[k] = (cand[k] || []).map((c, i) => {
+      if (!i || !c) return null;
+      const eq = c.eq, p = { ci: eq.ci, npc: POS[k] < 6 ? npcUnidad(eq, df, anios) : 0, campos: {} };
+      if (k === "wt") {
+        const WT = new Float64Array(n), f = perdidas?.wt ?? 1, tope = topeWT(eq);
+        for (let t = 0; t < n; t++) WT[t] = Math.min(c.wtKw[t % c.wtKw.length], tope) * f;
+        Object.assign(p.campos, { WT, wtPr: eq.pr });
+        p.estela = c.estela && { eta: Float32Array.from(c.estela.eta), sec: c.estela.sec && Uint8Array.from(c.estela.sec), S: c.estela.S, nMax: c.estela.nMax };
+        p.campoFV = c.campoFV && { ...c.campoFV, tabla: Float32Array.from(c.campoFV.tabla) };
+        p.terreno = c.terreno;
+      } else if (k === "pv") {
+        const PV = new Float64Array(n), f = perdidas?.pv ?? 1;
+        for (let t = 0; t < n; t++) PV[t] = Math.min(c.pvKw[t % c.pvKw.length], eq.pr) * f;
+        Object.assign(p.campos, { PV, pvPr: eq.pr });
+        p.terreno = c.terreno; p.m2Panel = c.m2Panel;
+      } else if (k === "con" || k === "ele" || k === "fc") p.campos[k] = { pr: eq.pr, eta: eq.eta };
+      else if (k === "ht") p.campos.ht = { cap: eq.cap };
+      else p.campos[k] = { ...eq };
+      return p;
+    });
+  }
+  return mods;
+}
+
+// El caso con los equipos que indica una configuración de 16 valores (se guarda: hay pocas combinaciones distintas).
+export function vista(caso, cfg) {
+  if (!caso.mods || !cfg || cfg.length <= 8) return caso;
+  const idx = cfg.slice(8, 16), clave = idx.join(",");
+  caso._vistas ??= new Map();
+  let v = caso._vistas.get(clave);
+  if (v) return v;
+  v = { ...caso, npcU: caso.npcU.slice(), ciU: caso.ciU.slice(), terreno: caso.terreno && { ...caso.terreno } };
+  MODULOS.forEach((k, i) => {
+    const p = idx[i] ? caso.mods[k][idx[i]] : null;
+    if (!p) return;
+    Object.assign(v, p.campos);
+    if (i < 6) v.npcU[i] = p.npc;
+    v.ciU[i] = p.ci;
+    if (v.terreno && p.terreno) Object.assign(v.terreno, p.terreno);
+    if (k === "wt") { v.estela = p.estela; if (p.campoFV) v.campoFV = { ...p.campoFV, m2Panel: v.campoFV?.m2Panel ?? p.campoFV.m2Panel }; }
+    if (k === "pv" && v.campoFV && p.m2Panel) v.campoFV = { ...v.campoFV, m2Panel: p.m2Panel };
+  });
+  // El m² por panel del panel elegido vale aunque la tabla venga del aerogenerador elegido.
+  const pPv = idx[1] ? caso.mods.pv[idx[1]] : null;
+  if (pPv?.m2Panel && v.campoFV) v.campoFV = { ...v.campoFV, m2Panel: pPv.m2Panel };
+  caso._vistas.set(clave, v);
+  return v;
 }
 
 // Factor de producción del campo solar con nWt aerogeneradores y nPv paneles (1 sin datos de la zona).
@@ -323,6 +404,7 @@ function redondear2(x) {
 // Despacho: los excedentes cargan primero la batería y luego el electrolizador; los déficits se cubren primero
 // con la batería, luego con el hidrógeno y, al final, con el diésel (seguimiento de carga).
 export function simular(caso, cfg, completo = false) {
+  caso = vista(caso, cfg);
   const nWt = cfg[0] || 0, nPv = cfg[1] || 0, nCon = cfg[2] || 0, nEle = cfg[3] || 0, nHt = cfg[4] || 0, nFc = cfg[5] || 0;
   const nBat = cfg[6] || 0, nDg = cfg[7] || 0;
   const { n, D, WT: wt1, PV: pv1 } = caso;
@@ -497,9 +579,11 @@ export function violacion(res, crit, caso, cfg) {
 // círculo libre) y los paneles (con el espacio entre filas) no pueden ocupar más que la superficie disponible.
 // Sin zona no se aplica.
 export function excesoTerreno(caso, cfg) {
-  const t = caso.terreno;
+  const t = vista(caso, cfg).terreno;
   if (!t || !cfg) return 0;
-  return Math.max(0, (cfg[0] * t.aWt + cfg[1] * t.aPv - t.area) / t.area) * 100;
+  // Además, no caben más aerogeneradores que las posiciones de su grilla (depende del rotor del equipo elegido).
+  const sobra = t.nWtMax != null && cfg[0] > t.nWtMax ? ((cfg[0] - t.nWtMax) / Math.max(1, t.nWtMax)) * 100 : 0;
+  return Math.max(0, (cfg[0] * t.aWt + cfg[1] * t.aPv - t.area) / t.area) * 100 + sobra;
 }
 
 // Penalizaciones en USD por año: excedentes perdidos (USD/kWh) e hidrógeno que nunca se usó en el año (USD/kWh).

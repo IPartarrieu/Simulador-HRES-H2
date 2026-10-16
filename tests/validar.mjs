@@ -136,6 +136,18 @@ otros.push(
   ["relieve plano: factor 1", media36(fPlano, 0), 1, 1e-9],
   ["loma de 100 m: la cima recibe más viento que el llano", +(media36(fLoma, 0) > 1.1 && media36(fLoma, 0) > media36(fLoma, 1)), 1, 0],
 );
+// Equipo como variable: elegir el índice 1 da lo mismo que armar el caso con ese equipo directamente.
+const fcCaro = { ...equipos.fc, ci: equipos.fc.ci * 2, rep: equipos.fc.rep * 2 }, eleOtro = CATALOGO.ele.find((x) => x.id === "ael5");
+const base = { demanda: datos.demanda_kw, wtKw: datos.tesis.wt_kw, pvKw: datos.tesis.pv_kw, economia: ECONOMIA_TESIS };
+const conCand = prepararCaso({ ...base, equipos, candidatos: { fc: [null, { eq: fcCaro }], ele: [null, { eq: eleOtro }] } });
+const directo = prepararCaso({ ...base, equipos: { ...equipos, fc: fcCaro, ele: eleOtro } });
+const c16 = [...cfgH, 0, 0, 0, 0, 0, 0, 0, 0], c16b = [...cfgH, 0, 0, 0, 0, 0, 0, 0, 0];
+c16b[8 + 3] = 1; c16b[8 + 5] = 1;
+otros.push(
+  ["equipo variable: índices en 0 = caso base", simular(conCand, c16).lcoe, simular(caso, cfgH).lcoe, 0],
+  ["equipo variable: índices 1 = caso con esos equipos", simular(conCand, c16b).lcoe, simular(directo, cfgH).lcoe, 0],
+  ["equipo variable: misma confiabilidad", simular(conCand, c16b).lole, simular(directo, cfgH).lole, 0],
+);
 for (const [nombre, a, e, tol] of otros) {
   const ok = cerca(a, e, tol); fallas += ok ? 0 : 1;
   console.log(`${ok ? "✓" : "✗"} ${nombre} → ${a.toFixed(4)} (esperado ${e.toFixed(4)})`);

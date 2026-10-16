@@ -9,10 +9,10 @@
 <meta name="description" content="Simulador y optimizador del dimensionamiento de un sistema híbrido de energías renovables (eólica y solar) con almacenamiento de energía en forma de hidrógeno, para zonas del centro-sur de Chile.">
 <link rel="icon" href="assets/icono.svg" type="image/svg+xml">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="assets/style.css?v=20261016e">
+<link rel="stylesheet" href="assets/style.css?v=20261016f">
 <script src="vendor/chart.umd.min.js" defer></script>
 <script src="vendor/leaflet/leaflet.js" defer></script>
-<script type="module" src="assets/app.js?v=20261016e"></script>
+<script type="module" src="assets/app.js?v=20261016f"></script>
 </head>
 <body>
 <header class="top">
@@ -179,6 +179,7 @@
       <label>Consumo auxiliar de la celda (% de su potencia) <input type="number" id="h2-fc-aux" min="0" max="20" step="0.5" value="3"></label>
     </div>
     <p class="fine">Cada electrolizador funciona solo sobre su carga mínima (10-20 % en PEM y alcalinos) y, mientras opera, consume una parte de su potencia en bombas, enfriamiento y control; por eso rinde menos a carga parcial. Comprimir el H₂ hasta el tanque cuesta 2-4 kWh/kg (el kg de H₂ guarda 33,3 kWh). La celda de combustible consume un poco de H₂ por estar encendida, como la curva de combustible de HOMER, y a baja carga tiene que producir su mínimo aunque sobre. El caso de ejemplo usa ceros, como la tesis.</p>
+    <p class="fine">Si marcas «Que el optimizador elija», el equipo pasa a ser una variable más: el optimizador prueba cada equipo del catálogo de ese módulo junto con las cantidades y entrega el mejor para tu demanda, tu recurso y tu zona (cada aerogenerador con su propia grilla, estelas y relieve; cada panel con su área). Con muchos módulos libres la búsqueda es más grande: conviene subir las evaluaciones.</p>
     <p class="fine">Cada equipo indica su fuente. Los marcados «caso de ejemplo» usan los valores del caso de referencia (ver «Acerca del simulador»); los que citan un artículo toman de él sus parámetros técnicos y, cuando los informa, sus costos; los demás son referenciales. Revísalos antes de usar los resultados para una decisión.</p>
   </section>
 
@@ -334,6 +335,7 @@
   <!-- 7. Resultados -->
   <section class="card" id="resultados" hidden>
     <div class="card-head"><span class="num">★</span><div><h2>Resultados</h2><p class="muted" id="res-subtitulo"></p></div></div>
+    <p class="status ok" id="res-equipos" hidden></p>
     <div class="kpis" id="kpis"></div>
     <div class="aviso" id="aviso" role="status" hidden></div>
     <div class="table-wrap"><table class="tabla" id="tabla-equipos"></table></div>
@@ -652,6 +654,12 @@
 
     <div class="bib-grupo">
       <h3 class="sub">Optimización</h3>
+      <details class="termino"><summary>Equipo como variable de optimización</summary>
+        <p>Al marcar «Que el optimizador elija» en un módulo, la configuración suma una variable entera por módulo: el índice del equipo dentro del catálogo (0 = el elegido en la página). El vector pasa de 8 a 16 valores:</p>
+        <p class="ecuacion">x = [ n<sub>WT</sub>, n<sub>PV</sub>, n<sub>CON</sub>, n<sub>ELE</sub>, n<sub>HT</sub>, n<sub>FC</sub>, n<sub>BAT</sub>, n<sub>DG</sub>, e<sub>WT</sub>, e<sub>PV</sub>, …, e<sub>DG</sub> ]</p>
+        <p>Antes de optimizar se prepara cada candidato: su serie de potencia (curva, frío, hielo y montaje), sus costos, y en la zona su grilla de aerogeneradores (la separación depende del rotor), sus estelas y relieve, el campo solar y el terreno por unidad. Cada combinación de equipos se simula con sus propios datos, y los límites de cantidades se calculan con el equipo más chico de cada módulo. Así el resultado entrega cuántas unidades y de qué equipo.</p>
+        <p class="en-sim">Los equipos agregados desde la literatura se leyeron en el texto completo de cada artículo: Kalantari et al. (2020), Amoussou et al. (2023) y Dehouche y Garner (2023). Los costos en euros se convirtieron a 1 EUR = 1,08 USD. Con las series de ejemplo de lat. 45°S, el aerogenerador y el panel quedan fijos.</p>
+      </details>
       <details class="termino"><summary>Variables de decisión y límites</summary>
         <p>Ocho cantidades enteras: aerogeneradores, paneles, conversores, electrolizadores, tanques, celdas, baterías y generadores diésel. Cada una tiene un mínimo y un máximo; los módulos que no forman parte de la arquitectura quedan en cero.</p>
       </details>
