@@ -186,12 +186,13 @@ export function npcUnidad(dev, df, anios, anual = 0) {
 export function prepararCaso({ demanda, wtKw, pvKw, equipos, economia, terreno = null, estela = null, campoFV = null, perdidas = null, h2 = null }) {
   const eq = { bat: CATALOGO.bat[0], dg: CATALOGO.dg[0], ...equipos };
   const eco = { ...ECONOMIA_TESIS, ...economia };
-  const n = demanda.length;
+  // Varios años de clima: las series de potencia traen N × 8760 horas y la demanda (un año) se repite.
+  const nD = demanda.length, n = Math.max(nD, wtKw?.length || 0, pvKw?.length || 0), anosClima = Math.round(n / nD);
   const D = new Float64Array(n), WT = new Float64Array(n), PV = new Float64Array(n);
   let sumaD = 0, maxD = 0;
   const fWt = perdidas?.wt ?? 1, fPv = perdidas?.pv ?? 1;
   for (let t = 0; t < n; t++) {
-    D[t] = demanda[t] * (1 + eco.reserva);
+    D[t] = demanda[t % nD] * (1 + eco.reserva);
     WT[t] = wtKw ? Math.min(wtKw[t], eq.wt.pr) * fWt : 0;     // la tesis recorta a la potencia nominal
     PV[t] = pvKw ? Math.min(pvKw[t], eq.pv.pr) * fPv : 0;
     sumaD += D[t]; if (D[t] > maxD) maxD = D[t];
@@ -202,7 +203,7 @@ export function prepararCaso({ demanda, wtKw, pvKw, equipos, economia, terreno =
   for (let y = 1; y <= eco.anios; y++) sumaDF += df[y];
   const npcU = ["wt", "pv", "con", "ele", "ht", "fc"].map((k) => npcUnidad(eq[k], df, eco.anios));
   return {
-    n, D, WT, PV, mediaD: sumaD / n, maxD, sumaD,
+    n, D, WT, PV, mediaD: sumaD / n, maxD, sumaD: sumaD / anosClima, anosClima, horasAnio: nD,
     wtPr: eq.wt.pr, pvPr: eq.pv.pr,
     con: { pr: eq.con.pr, eta: eq.con.eta },
     ele: { pr: eq.ele.pr, eta: eq.ele.eta },
@@ -260,6 +261,7 @@ export function simular(caso, cfg, completo = false) {
   let soc = capBat;                                        // la batería parte llena
   let eSum = 0, perdida = 0, ens = 0, lole = 0, h2Entra = 0, h2Sale = 0, h2Min = capHt;
   let batEntra = 0, batSale = 0, dgE = 0, litros = 0, horasDg = 0;
+  const N = caso.anosClima || 1, horasAnio = caso.horasAnio || n, loleAnio = new Int32Array(N), ensAnio = new Float64Array(N);
   let sWt, sPv, sSum, sStr, sLoss, sDef, sSoc, sDg;
   if (completo) {
     sWt = new Float64Array(n); sPv = new Float64Array(n); sSum = new Float64Array(n); sStr = new Float64Array(n);
@@ -353,9 +355,20 @@ export function simular(caso, cfg, completo = false) {
     const loss = lossAcDc + lossEle + lossStr + lossFc + lossDg;
     const def = redondear2(d - sum);                 // igual que round(D - E_sys_D, 2) en Python
     eSum += sum; perdida += loss; ens += def;
-    if (def > 0.01) lole++;
+    if (def > 0.01) { lole++; loleAnio[(t / horasAnio) | 0]++; }
+    ensAnio[(t / horasAnio) | 0] += def;
     if (eStr < h2Min) h2Min = eStr;
     if (completo) { sWt[t] = WT; sPv[t] = PV; sSum[t] = sum; sStr[t] = eStr; sLoss[t] = loss; sDef[t] = def; sSoc[t] = soc; sDg[t] = dgOut; }
+  }
+
+  // Varios años: los totales pasan a promedio anual y la confiabilidad es la del peor año (más horas con déficit;
+  // a igual número, más energía no suministrada). Con un año no cambia nada.
+  let peor = 0;
+  for (let a = 1; a < N; a++) if (loleAnio[a] > loleAnio[peor] || (loleAnio[a] === loleAnio[peor] && ensAnio[a] > ensAnio[peor])) peor = a;
+  const loleMedia = lole / N;
+  if (N > 1) {
+    lole = loleAnio[peor]; ens = ensAnio[peor];
+    eSum /= N; perdida /= N; h2Entra /= N; h2Sale /= N; batEntra /= N; batSale /= N; dgE /= N; litros /= N; horasDg /= N;
   }
 
   // Costos: módulos de la tesis con su NPC por unidad; batería y diésel dependen de cómo se usaron.
@@ -377,10 +390,13 @@ export function simular(caso, cfg, completo = false) {
   }
   const lcoe = eSum > 0 ? Math.round((caso.crf * npc / eSum) * 1e4) / 1e4 : Infinity;
   const lpsp = Math.max(0, ens) / caso.sumaD;
-  const r = { lcoe, lole, ens, lpsp, eSum, perdida, npc, capex, h2Entra, h2Sale, h2Min, eStrFinal: eStr,
+  const r = { lcoe, lole, ens, lpsp, loleMedia, anosClima: N, anioPeor: peor, eSum, perdida, npc, capex, h2Entra, h2Sale, h2Min, eStrFinal: eStr,
     batEntra, batSale, ciclosBat, vidaBat, npcBat, dgE, litros, horasDg, vidaDg, npcDg, costoDieselAnual,
     co2: litros * CO2_POR_LITRO, fraccionRenovable: eSum > 0 ? 1 - dgE / eSum : 0 };
-  if (completo) r.series = { wt: sWt, pv: sPv, sum: sSum, str: sStr, loss: sLoss, def: sDef, d: D, soc: sSoc, dg: sDg };
+  if (completo) {
+    r.series = { wt: sWt, pv: sPv, sum: sSum, str: sStr, loss: sLoss, def: sDef, d: D, soc: sSoc, dg: sDg };
+    if (N > 1) for (const k in r.series) r.series[k] = r.series[k].slice(peor * horasAnio, (peor + 1) * horasAnio);   // el peor año
+  }
   return r;
 }
 

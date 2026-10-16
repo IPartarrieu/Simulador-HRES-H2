@@ -9,10 +9,10 @@
 <meta name="description" content="Simulador y optimizador del dimensionamiento de un sistema híbrido de energías renovables (eólica y solar) con almacenamiento de energía en forma de hidrógeno, para zonas del centro-sur de Chile.">
 <link rel="icon" href="assets/icono.svg" type="image/svg+xml">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="assets/style.css?v=20261016a">
+<link rel="stylesheet" href="assets/style.css?v=20261016b">
 <script src="vendor/chart.umd.min.js" defer></script>
 <script src="vendor/leaflet/leaflet.js" defer></script>
-<script type="module" src="assets/app.js?v=20261016a"></script>
+<script type="module" src="assets/app.js?v=20261016b"></script>
 </head>
 <body>
 <header class="top">
@@ -114,8 +114,9 @@
       <label>Latitud <input type="number" id="ub-lat" min="-39.7" max="-34.6" step="0.01" value="-36.83"></label>
       <label>Longitud <input type="number" id="ub-lon" min="-74" max="-70.3" step="0.01" value="-73.05"></label>
       <label>Año <input type="number" id="ub-anio" min="1950" max="2025" value="2023"></label>
+      <label>Años de clima (terminando en ese año) <input type="number" id="ub-anios" min="1" max="20" value="1"></label>
       <button class="btn btn-small" type="button" id="ub-cargar">Descargar el clima</button>
-      <p class="fine">Al dibujar una zona se usa su centro. El punto debe estar dentro de la región de prueba (latitud −39,7 a −34,6; longitud −74 a −70,3).</p>
+      <p class="fine">Con varios años, el sistema se dimensiona con todo ese período seguido (el hidrógeno guardado pasa de un año al siguiente): energía y costos se informan como promedio anual y la confiabilidad se exige en el peor año, así el diseño resiste años con poco viento o poco sol. Los gráficos muestran el año más desfavorable. 10 años tardan unas 10 veces más en optimizar. Al dibujar una zona se usa su centro. El punto debe estar dentro de la región de prueba (latitud −39,7 a −34,6; longitud −74 a −70,3).</p>
     </div>
     <div class="subopts" data-para="csv" hidden>
       <label>Archivo <input type="file" id="rec-archivo" accept=".csv,.txt,text/csv,text/plain"></label>
@@ -566,6 +567,11 @@
       </details>
       <details class="termino"><summary>Factor de planta</summary>
         <p class="ecuacion">FP = Σ<sub>t</sub> P<sub>t</sub> / (8760 · P<sub>r</sub>)</p>
+      </details>
+      <details class="termino"><summary>Varios años de clima</summary>
+        <p>Un solo año puede ser bueno o malo para el viento y el sol. Con la opción «ERA5 en tu zona» se pueden descargar hasta 20 años seguidos. El despacho recorre todo el período hora a hora con la demanda repetida cada año, y el hidrógeno guardado pasa de un año al siguiente. Los costos, la energía y las pérdidas se promedian por año; la confiabilidad (LOLE, ENS, LPSP) se toma del peor año, así el diseño cumple incluso en años con poco recurso:</p>
+        <p class="ecuacion">LOLE = máx<sub>a</sub> LOLE<sub>a</sub> &nbsp;&nbsp; E<sub>anual</sub> = (1/N) Σ<sub>a</sub> E<sub>a</sub> &nbsp;&nbsp; LCOE = CRF · NPC / E<sub>anual</sub></p>
+        <p class="en-sim">HOMER simula un año tipo. Aquí, con 10 años de ERA5 en Lebu, el óptimo de la tesis tiene 4 h con déficit en 2023 pero 11 h en su peor año.</p>
       </details>
       <details class="termino"><summary>Eje dominante del viento</summary>
         <p>Dirección en la que llega la mayor parte de la energía del viento a 100 m, ponderando cada hora por v³. Se usan ángulos dobles, porque una fila de aerogeneradores sirve igual con viento de norte que de sur.</p>

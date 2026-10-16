@@ -100,6 +100,14 @@ otros.push(
   ["H₂ real: no mejora la confiabilidad", +(rReal.lole >= rIdeal.lole), 1, 0],
   ["compresión sola: menos H₂ que el ideal", +(soloComp.h2Entra < rIdeal.h2Entra), 1, 0],
 );
+// Varios años: el mismo año repetido dos veces da casi la misma energía anual; los gráficos traen un año.
+const doble = (x) => [...x, ...x];
+const caso2 = prepararCaso({ demanda: datos.demanda_kw, wtKw: doble(datos.tesis.wt_kw), pvKw: doble(datos.tesis.pv_kw), equipos, economia: ECONOMIA_TESIS });
+const r1 = simular(caso, cfgH), r2 = simular(caso2, cfgH, true);
+otros.push(
+  ["2 años iguales: energía anual ≈ la de 1 año", r2.eSum / r1.eSum, 1, 0.01],
+  ["2 años: las series de los gráficos son de un año", r2.series.d.length, 8760, 0],
+);
 for (const [nombre, a, e, tol] of otros) {
   const ok = cerca(a, e, tol); fallas += ok ? 0 : 1;
   console.log(`${ok ? "✓" : "✗"} ${nombre} → ${a.toFixed(4)} (esperado ${e.toFixed(4)})`);

@@ -1,6 +1,6 @@
 // Series de entrada: demanda horaria (8760 h) y recurso meteorológico.
-import { rng } from "./optimizers.js?v=20261016a";
-import { decodificarSerie } from "./codec.js?v=20261016a";
+import { rng } from "./optimizers.js?v=20261016b";
+import { decodificarSerie } from "./codec.js?v=20261016b";
 
 export const HORAS = 8760;
 
@@ -73,12 +73,12 @@ export function demandaCSV(texto, nombreArchivo = "archivo propio") {
 
 /* ---------- Recurso meteorológico ---------- */
 
-// ERA5 (reanálisis de Copernicus/ECMWF) vía Open-Meteo, para cualquier punto y año. Panel inclinado en la
-// latitud y orientado hacia el ecuador.
-export async function climaOpenMeteo({ lat, lon, anio }) {
+// ERA5 (reanálisis de Copernicus/ECMWF) vía Open-Meteo, para cualquier punto y uno o varios años seguidos (hasta
+// `anio`). Panel inclinado en la latitud y orientado hacia el ecuador. Se quitan los 29 de febrero: cada año, 8760 h.
+export async function climaOpenMeteo({ lat, lon, anio, anios = 1 }) {
   const inclinacion = Math.min(60, Math.round(Math.abs(lat)));
   const params = new URLSearchParams({
-    latitude: lat, longitude: lon, start_date: `${anio}-01-01`, end_date: `${anio}-12-31`,
+    latitude: lat, longitude: lon, start_date: `${anio - anios + 1}-01-01`, end_date: `${anio}-12-31`,
     hourly: "temperature_2m,surface_pressure,wind_speed_10m,wind_speed_100m,wind_direction_100m,global_tilted_irradiance",
     tilt: inclinacion, azimuth: lat < 0 ? 180 : 0, wind_speed_unit: "ms", timezone: "auto",
   });
@@ -86,16 +86,16 @@ export async function climaOpenMeteo({ lat, lon, anio }) {
   const d = await resp.json();
   if (!resp.ok || d.error) throw new Error(d.reason || `Open-Meteo respondió ${resp.status}`);
   const h = d.hourly;
-  const quitar29 = h.time.length === 8784;
-  const limpiar = (a) => { const c = a.map((v) => (v == null ? 0 : v)); if (quitar29) c.splice(59 * 24, 24); return c.slice(0, HORAS); };
+  const sirve = h.time.map((s) => !s.includes("-02-29")), total = HORAS * anios;
+  const limpiar = (a) => a.filter((_, i) => sirve[i]).map((v) => (v == null ? 0 : v)).slice(0, total);
   const clima = {
     temp_c: limpiar(h.temperature_2m), presion_hpa: limpiar(h.surface_pressure),
     v10_ms: limpiar(h.wind_speed_10m), v100_ms: limpiar(h.wind_speed_100m), gti_wm2: limpiar(h.global_tilted_irradiance),
     dir100_deg: limpiar(h.wind_direction_100m),
   };
-  if (clima.gti_wm2.length < HORAS) throw new Error("Open-Meteo no entregó un año completo para ese punto.");
+  if (clima.gti_wm2.length < total) throw new Error("Open-Meteo no entregó todos los años pedidos para ese punto.");
   Object.assign(clima, ejeViento(h.wind_speed_100m, h.wind_direction_100m));
-  return { clima, nombre: `ERA5 · ${lat.toFixed(2)}°, ${lon.toFixed(2)}° · ${anio}`, punto: [d.latitude, d.longitude] };
+  return { clima, nombre: `ERA5 · ${lat.toFixed(2)}°, ${lon.toFixed(2)}° · ${anios > 1 ? `${anio - anios + 1}-` : ""}${anio}`, punto: [d.latitude, d.longitude] };
 }
 
 // Series prealmacenadas de la región de prueba (ERA5 2023, data/clima/<id>.json), del Maule a la Araucanía.

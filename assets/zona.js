@@ -5,7 +5,7 @@
 // ponytail: rectángulo que cubre las cuatro regiones, no su límite exacto; usar un GeoJSON regional si hace falta precisión.
 export const REGION = { latMin: -39.7, latMax: -34.6, lonMin: -74.0, lonMax: -70.3 };
 export const AREA_MAX_KM2 = 25;          // límite para que la zona sea un terreno, no una comuna entera
-import { potenciaWT, vientoBuje } from "./model.js?v=20261016a";
+import { potenciaWT, vientoBuje } from "./model.js?v=20261016b";
 
 const R = 6378137;
 const rad = (g) => (g * Math.PI) / 180, grados = (r) => (r * 180) / Math.PI;
@@ -547,7 +547,7 @@ export function mapaViento(rej, { turb, D, hub, clima, eje }) {
 export function mapaSolar(rej, { lat, beta, gti, turb, hub, D }) {
   const { x0, x1, y0, y1, n, elev } = rej, ex = (x1 - x0) / (n - 1), ey = (y1 - y0) / (n - 1), pts = puntosRejilla(rej);
   const soles = cieloDespejado(lat, rad(beta), 5, 0.5), paso = (5 * 0.5) / 1000;            // W/m² → kWh/m² por muestra
-  const kc = gti ? gti.reduce((a, b) => a + b, 0) / 1000 / (soles.reduce((a, s) => a + s.total, 0) * paso) : 1;
+  const kc = gti ? gti.reduce((a, b) => a + b, 0) / 1000 / (gti.length / 8760) / (soles.reduce((a, s) => a + s.total, 0) * paso) : 1;   // por año
   const e = (i, j) => elev[Math.max(0, Math.min(n - 1, i)) * n + Math.max(0, Math.min(n - 1, j))];
   const NAZ = 16, horiz = new Float32Array(n * n * NAZ);
   for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) for (let a = 0; a < NAZ; a++) {
@@ -588,7 +588,7 @@ function sombraEnPuntos(pts, turb, { lat, beta, hub, D, lado }) {
 // aerogeneradores. Es el criterio con que se llena el campo solar.
 export function mapaPanelFV(rej, { lat, beta, gcr, gti, turb, hub, D }) {
   const pts = puntosRejilla(rej), f = factorCeldasFV(pts, rej, { lat, beta, gcr });
-  const anual = gti ? gti.reduce((a, b) => a + b, 0) / 1000 : 1000;
+  const anual = gti ? gti.reduce((a, b) => a + b, 0) / 1000 / (gti.length / 8760) : 1000;   // promedio por año
   const sT = sombraEnPuntos(pts, turb, { lat, beta, hub, D, lado: Math.min(rej.x1 - rej.x0, rej.y1 - rej.y0) / (rej.n - 1) });
   return Float32Array.from(f, (x, k) => anual * x * (1 - Math.min(1, sT[k])));
 }
