@@ -5,7 +5,7 @@
 // ponytail: rectángulo que cubre las cuatro regiones, no su límite exacto; usar un GeoJSON regional si hace falta precisión.
 export const REGION = { latMin: -39.7, latMax: -34.6, lonMin: -74.0, lonMax: -70.3 };
 export const AREA_MAX_KM2 = 25;          // límite para que la zona sea un terreno, no una comuna entera
-import { potenciaWT, vientoBuje } from "./model.js?v=20261015h";
+import { potenciaWT, vientoBuje } from "./model.js?v=20261016a";
 
 const R = 6378137;
 const rad = (g) => (g * Math.PI) / 180, grados = (r) => (r * 180) / Math.PI;

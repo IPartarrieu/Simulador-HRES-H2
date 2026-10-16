@@ -1,10 +1,10 @@
 // Página del Simulador HRES-H2: arma el caso con lo que elige la persona, reparte las simulaciones entre
 // Web Workers, ejecuta el método de optimización (uno o varios objetivos) y muestra los resultados.
-import { CATALOGO, MODULOS, NOMBRES, ECONOMIA_TESIS, FUENTES, OBJETIVOS_MO, potenciaPV, potenciaWT, limitesPorDefecto, flujoCaja, crf, tasaReal } from "./model.js?v=20261015h";
-import { monteCarlo, genetico, shade, pso, gwo, woa, eo, nsga2, mopso, aptitud, PENALIZACION } from "./optimizers.js?v=20261015h";
-import * as dem from "./demand.js?v=20261015h";
-import { svgDiagrama, svgLayout, descargarSVG, descargarPNG, descargar } from "./diagram.js?v=20261015h";
-import * as zona from "./zona.js?v=20261015h";
+import { CATALOGO, MODULOS, NOMBRES, ECONOMIA_TESIS, FUENTES, OBJETIVOS_MO, potenciaPV, potenciaWT, limitesPorDefecto, flujoCaja, crf, tasaReal } from "./model.js?v=20261016a";
+import { monteCarlo, genetico, shade, pso, gwo, woa, eo, nsga2, mopso, aptitud, PENALIZACION } from "./optimizers.js?v=20261016a";
+import * as dem from "./demand.js?v=20261016a";
+import { svgDiagrama, svgLayout, descargarSVG, descargarPNG, descargar } from "./diagram.js?v=20261016a";
+import * as zona from "./zona.js?v=20261016a";
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -655,7 +655,7 @@ class Pool {
   constructor(n) {
     this.pend = new Map(); this.id = 0;
     this.workers = Array.from({ length: n }, () => {
-      const w = new Worker(new URL("./worker.js?v=20261015h", import.meta.url), { type: "module" });
+      const w = new Worker(new URL("./worker.js?v=20261016a", import.meta.url), { type: "module" });
       w.onmessage = (e) => {
         const p = this.pend.get(e.data.id);
         if (!p) return;
@@ -1121,7 +1121,7 @@ async function mostrar3D(op) {
   const ley = $("#leyenda-3d"); ley.replaceChildren();
   const chip = (color, texto) => { const s = document.createElement("span"), i = document.createElement("i"); i.style.background = color; s.append(i, texto); ley.appendChild(s); };
   try {
-    const m = await import("./escena3d.js?v=20261015h");
+    const m = await import("./escena3d.js?v=20261016a");
     chip("#FF8A3D", "Zona");
     if (op.cfg[0]) chip("#F7F8FA", `Aerogeneradores (${fmt(op.cfg[0])})`);
     if (op.cfg[1]) chip("#2456A6", `Paneles (${fmt(op.cfg[1])})`);
