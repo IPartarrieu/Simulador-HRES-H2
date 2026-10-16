@@ -5,7 +5,7 @@
 // ponytail: rectángulo que cubre las cuatro regiones, no su límite exacto; usar un GeoJSON regional si hace falta precisión.
 export const REGION = { latMin: -39.7, latMax: -34.6, lonMin: -74.0, lonMax: -70.3 };
 export const AREA_MAX_KM2 = 25;          // límite para que la zona sea un terreno, no una comuna entera
-import { potenciaWT, vientoBuje } from "./model.js?v=20261016c";
+import { potenciaWT, vientoBuje } from "./model.js?v=20261016d";
 
 const R = 6378137;
 const rad = (g) => (g * Math.PI) / 180, grados = (r) => (r * 180) / Math.PI;
@@ -248,8 +248,11 @@ export function sombraFilas(lat, beta, gcr) {
 // Paneles en filas orientadas al norte, inclinados en β, separados para no sombrearse entre las 10 y las 14 h
 // solares del solsticio de invierno (criterio usual de diseño). GCR = largo de la mesa / distancia entre filas.
 // aprovechamiento: fracción del terreno libre que queda para las mesas (caminos, inversores, bordes).
-export function distribucionPaneles(lat, { areaPanelM2, aprovechamiento = 0.85 }) {
-  const beta = Math.min(60, Math.round(Math.abs(lat)));
+// Con seguidores (montaje "seguidor", eje norte-sur con retroceso) la ocupación es la del seguidor (gcrSeg) y no hay
+// sombra entre filas: el retroceso la evita, a cambio de girar menos (eso ya está en radiacionPanel).
+export function distribucionPaneles(lat, { areaPanelM2, aprovechamiento = 0.85, montaje = "fija", beta: b0 = null, gcrSeg = 0.35 }) {
+  if (montaje === "seguidor") return { beta: 0, alfa: null, gcr: gcrSeg, m2PorPanel: areaPanelM2 / (gcrSeg * aprovechamiento), sombra: 0, seguidor: true };
+  const beta = b0 ?? Math.min(60, Math.round(Math.abs(lat)));
   const alfa = Math.max(5, grados(perfil(sol(lat, 172, 10))));            // 21 de junio, 10 h solares
   const gcr = 1 / (Math.cos(rad(beta)) + Math.sin(rad(beta)) / Math.tan(rad(alfa)));
   return { beta, alfa, gcr, m2PorPanel: areaPanelM2 / (gcr * aprovechamiento), sombra: sombraFilas(lat, rad(beta), gcr) };
@@ -315,9 +318,11 @@ export const areaExclusiva = ({ D, sx, sy, compartir, libre }) => (compartir ? M
 // - la sombra entre filas según la pendiente norte-sur σ del terreno: en una ladera al norte (σ > 0) la fila de
 //   adelante queda más baja y sombrea menos; en una ladera al sur, más: f = 1 − sen(αp + σ) / (GCR · sen(αp + β)).
 // Sin relieve (no se pudo descargar), todas las celdas valen lo del terreno plano: 1 − sombraFilas.
-export function factorCeldasFV(celdas, rel, { lat, beta, gcr }) {
+export function factorCeldasFV(celdas, rel, { lat, beta, gcr, seguidor = false }) {
   const soles = cieloDespejado(lat, rad(beta), 5, 0.5), tot = soles.reduce((a, s) => a + s.total, 0), b = rad(beta);
-  const prof = soles.map((s) => (s.haz && Math.cos(s.az) > 0 ? perfil(s) : null)), dirs = soles.map((s) => dirHorizonte(s.az));
+  // Con seguidores no hay sombra entre filas (retroceso): solo cuenta el horizonte. ponytail: los pesos del haz son los
+  // de un panel fijo con inclinación beta (0 para el seguidor), una aproximación para el horizonte.
+  const prof = soles.map((s) => (!seguidor && s.haz && Math.cos(s.az) > 0 ? perfil(s) : null)), dirs = soles.map((s) => dirHorizonte(s.az));
   const ds = rel ? Math.min(rel.x1 - rel.x0, rel.y1 - rel.y0) / (rel.n - 1) : 0;
   const calc = (sigma, hz) => {
     let E = 0;
@@ -353,7 +358,7 @@ function ordenCeldas(celdas, c, ocupada, val) {
 // la última. rel: relieve de la zona (o null).
 export function interaccionPV(pts, posiciones, op, rel) {
   const z = celdasZona(pts), K = z.celdas.length, nMax = Math.min(posiciones.length, op.nMax);
-  const lat = centro(pts)[0], base = factorCeldasFV(z.celdas, rel, { lat, beta: op.beta, gcr: op.gcr });
+  const lat = centro(pts)[0], base = factorCeldasFV(z.celdas, rel, { lat, beta: op.beta, gcr: op.gcr, seguidor: op.seguidor });
   const soles = nMax ? solesSombra(lat, rad(op.beta)) : [];
   const perd = new Float64Array(K), ocupada = new Uint8Array(K), val = Float64Array.from(base), tabla = new Float32Array((nMax + 1) * K);
   for (let n = 0; n <= nMax; n++) {
@@ -500,10 +505,10 @@ export const eficienciaParque = (e, n) => e.eta[Math.min(n, e.nMax) * (e.S + 1) 
 // - el campo fotovoltaico en las celdas que deja libres el terreno de los aerogeneradores, en el orden de
 //   ordenCeldas, hasta cubrir el terreno que necesitan los paneles (areaPv, m²).
 // ponytail: el campo FV se arma con celdas de hasta ~3000 por zona; para un trazado fino de mesas, usar un CAD.
-export function layoutResultado(pts, { posiciones, nWt, areaPv, hub = 0, beta = 0, gcr = 0.5, rel = null, ...op }) {
+export function layoutResultado(pts, { posiciones, nWt, areaPv, hub = 0, beta = 0, gcr = 0.5, rel = null, seguidor = false, ...op }) {
   const z = celdasZona(pts), K = z.celdas.length, lat = centro(pts)[0];
   const turb = posiciones.slice(0, nWt).map(z.pr.a);
-  const base = areaPv ? factorCeldasFV(z.celdas, rel, { lat, beta, gcr }) : new Float64Array(K).fill(1);
+  const base = areaPv ? factorCeldasFV(z.celdas, rel, { lat, beta, gcr, seguidor }) : new Float64Array(K).fill(1);
   const perd = new Float64Array(K), ocupada = new Uint8Array(K);
   const soles = turb.length && areaPv ? solesSombra(lat, rad(beta)) : [];
   for (const t of turb) {
@@ -603,8 +608,9 @@ function sombraEnPuntos(pts, turb, { lat, beta, hub, D, lado }) {
 // Radiación anual que reciben los paneles (kWh/m²·año sobre el plano del panel) si se instalan en cada punto: la de
 // la serie por el factor de la celda (relieve y sombra entre filas según la pendiente) y la sombra de los
 // aerogeneradores. Es el criterio con que se llena el campo solar.
-export function mapaPanelFV(rej, { lat, beta, gcr, gti, turb, hub, D }) {
-  const pts = puntosRejilla(rej), f = factorCeldasFV(pts, rej, { lat, beta, gcr });
+export function mapaPanelFV(rej, { lat, beta, gcr, gti, turb, hub, D, seguidor = false, poa = null }) {
+  const pts = puntosRejilla(rej), f = factorCeldasFV(pts, rej, { lat, beta, gcr, seguidor });
+  gti = poa || gti;                                                    // radiación sobre el panel del montaje elegido
   const anual = gti ? gti.reduce((a, b) => a + b, 0) / 1000 / (gti.length / 8760) : 1000;   // promedio por año
   const sT = sombraEnPuntos(pts, turb, { lat, beta, hub, D, lado: Math.min(rej.x1 - rej.x0, rej.y1 - rej.y0) / (rej.n - 1) });
   return Float32Array.from(f, (x, k) => anual * x * (1 - Math.min(1, sT[k])));

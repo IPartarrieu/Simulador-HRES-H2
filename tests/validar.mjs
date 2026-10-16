@@ -4,7 +4,7 @@
 // Uso: node tests/validar.mjs
 import { readFileSync } from "node:fs";
 import { decodificarSerie } from "../assets/codec.js";
-import { CATALOGO, ECONOMIA_TESIS, prepararCaso, simular, crf, tasaReal, npcUnidad, potenciaWT } from "../assets/model.js";
+import { CATALOGO, ECONOMIA_TESIS, prepararCaso, simular, crf, tasaReal, npcUnidad, potenciaWT, radiacionPanel } from "../assets/model.js";
 import { ctEfectivo, estelaParque, eficienciaParque, distribucionPaneles, sombraFilas, proyeccion, interaccionPV, distribuirAerogeneradores, factorCeldasFV } from "../assets/zona.js";
 
 const datos = JSON.parse(readFileSync(new URL("../data/ejemplo_45s_2018.json", import.meta.url)));
@@ -114,6 +114,17 @@ otros.push(
   ["Bergey Excel 10 certificado a 7 m/s (kW)", curva("bergey10", 7), 2.403, 1e-3],
   ["Bergey Excel 10 a 16,5 m/s: 12,6 kW, sobre la nominal", curva("bergey10", 16.5), 12.555, 1e-3],
   ["NPS 100C-24 a 8,5 m/s, interpolada (kW)", curva("nps100", 8.5), (58.7 + 74.8) / 2, 1e-3],
+);
+// Radiación sobre el panel (Hay-Davies) contra la radiación inclinada de ERA5 en Talca (panel a 35° al norte).
+const talca = JSON.parse(readFileSync(new URL("../data/clima/talca.json", import.meta.url)));
+const poaT = radiacionPanel(talca, { montaje: "fija", beta: talca.inclinacion }), gtiT = talca.gti_wm2;
+const suma = (x) => x.reduce((p, q) => p + q, 0), mx = suma(poaT) / 8760, my = suma(gtiT) / 8760;
+let sxy = 0, sxx = 0, syy = 0;
+for (let i = 0; i < 8760; i++) { sxy += (poaT[i] - mx) * (gtiT[i] - my); sxx += (poaT[i] - mx) ** 2; syy += (gtiT[i] - my) ** 2; }
+otros.push(
+  ["panel fijo: correlación horaria con ERA5 > 0,99", +(sxy / Math.sqrt(sxx * syy) > 0.99), 1, 0],
+  ["panel fijo: energía anual como ERA5 (±5 %)", suma(poaT) / suma(gtiT), 1, 0.05],
+  ["seguidor: 10-30 % más que fijo", +(suma(radiacionPanel(talca, { montaje: "seguidor" })) / suma(poaT) - 1 > 0.1 && suma(radiacionPanel(talca, { montaje: "seguidor" })) / suma(poaT) - 1 < 0.3), 1, 0],
 );
 for (const [nombre, a, e, tol] of otros) {
   const ok = cerca(a, e, tol); fallas += ok ? 0 : 1;

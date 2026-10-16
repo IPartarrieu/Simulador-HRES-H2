@@ -9,10 +9,10 @@
 <meta name="description" content="Simulador y optimizador del dimensionamiento de un sistema híbrido de energías renovables (eólica y solar) con almacenamiento de energía en forma de hidrógeno, para zonas del centro-sur de Chile.">
 <link rel="icon" href="assets/icono.svg" type="image/svg+xml">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="assets/style.css?v=20261016c">
+<link rel="stylesheet" href="assets/style.css?v=20261016d">
 <script src="vendor/chart.umd.min.js" defer></script>
 <script src="vendor/leaflet/leaflet.js" defer></script>
-<script type="module" src="assets/app.js?v=20261016c"></script>
+<script type="module" src="assets/app.js?v=20261016d"></script>
 </head>
 <body>
 <header class="top">
@@ -202,6 +202,8 @@
         <p class="fine" id="lay-eje-nota"></p>
         <h3 class="sub">Paneles</h3>
         <div class="form-grid tight">
+          <label>Montaje <select id="pv-montaje"><option value="fija-lat">Fijo, inclinado en la latitud</option><option value="fija-opt">Fijo, con la inclinación óptima</option><option value="seguidor">Seguidor de un eje norte-sur</option></select></label>
+          <label>Ocupación del seguidor (GCR, %) <input type="number" id="pv-gcr" min="15" max="70" step="1" value="35"></label>
           <label>Terreno aprovechable para mesas (%) <input type="number" id="lay-aprov" min="10" max="100" step="1" value="85"></label>
           <label>Radio libre alrededor de cada aerogenerador (diámetros) <input type="number" id="lay-libre" min="0.5" max="5" step="0.5" value="1"></label>
         </div>
@@ -572,6 +574,12 @@
       </details>
       <details class="termino"><summary>Factor de planta</summary>
         <p class="ecuacion">FP = Σ<sub>t</sub> P<sub>t</sub> / (8760 · P<sub>r</sub>)</p>
+      </details>
+      <details class="termino"><summary>Montaje y radiación sobre el panel</summary>
+        <p>Con las series del centro-sur y con «ERA5 en tu zona», la radiación sobre el panel se calcula hora a hora desde la global (GHI), la directa normal (DNI) y la difusa (DHI) con el modelo de cielo de Hay-Davies: la difusa se reparte entre la que viene de cerca del sol (proporción A<sub>i</sub> = DNI/I<sub>0</sub>) y la del resto del cielo, y se suma el reflejo del suelo (albedo 0,2):</p>
+        <p class="ecuacion">G<sub>panel</sub> = DNI · cos θ + DHI · [A<sub>i</sub> · cos θ / cos θ<sub>z</sub> + (1 − A<sub>i</sub>)(1 + cos β)/2] + GHI · 0,2 · (1 − cos β)/2</p>
+        <p>Montajes: fijo en la latitud (como la tesis), fijo con la inclinación que da más energía anual (25-29° en el centro-sur, cerca de 1 % más) y seguidor de un eje norte-sur que gira de este a oeste hasta ±55°, con retroceso para no sombrear la fila vecina (algoritmo de Marion y Dobos, el de pvlib). El seguidor recibe 19-22 % más radiación en el centro-sur, pero sus filas van más separadas (GCR 35 %): ocupa más terreno por panel.</p>
+        <p class="en-sim">ERA5 entrega cada valor como promedio de la hora anterior, en hora de Chile con desfase fijo (UTC − 3): el sol se calcula a la media hora. Con ese ajuste, el panel fijo calculado coincide hora a hora con la radiación inclinada de ERA5 (correlación 0,9996; energía anual +2 %). Las series de ejemplo de lat. 45°S y los archivos propios traen solo la radiación sobre un panel fijo en la latitud.</p>
       </details>
       <details class="termino"><summary>Varios años de clima</summary>
         <p>Un solo año puede ser bueno o malo para el viento y el sol. Con la opción «ERA5 en tu zona» se pueden descargar hasta 20 años seguidos. El despacho recorre todo el período hora a hora con la demanda repetida cada año, y el hidrógeno guardado pasa de un año al siguiente. Los costos, la energía y las pérdidas se promedian por año; la confiabilidad (LOLE, ENS, LPSP) se toma del peor año, así el diseño cumple incluso en años con poco recurso:</p>

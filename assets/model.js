@@ -169,6 +169,49 @@ export function factorFrio(clima, { tMin = -20, hielo = true } = {}) {
   return { f, horasHielo, horasFrio, conHumedad: !!H };
 }
 
+// Radiación sobre el plano de los paneles (W/m²) desde la global, la directa normal y la difusa (ERA5), con el modelo de
+// cielo de Hay-Davies (difusa circunsolar + isotrópica) y reflejo del suelo (albedo 0,2). Cada valor horario es el
+// promedio de la hora anterior: el sol se calcula a la media hora, en hora UTC = local + utcLocal (Open-Meteo usa un
+// desfase fijo; en Chile, 3 h). Montajes:
+// - "fija": inclinación beta hacia el ecuador;
+// - "seguidor": eje horizontal norte-sur que gira de este a oeste (hasta ±55°) siguiendo al sol, con retroceso
+//   (backtracking) para no sombrear la fila vecina según su ocupación gcr (Marion y Dobos, 2013; como pvlib).
+export function radiacionPanel(clima, { montaje = "fija", beta = 30, gcr = 0.35, albedo = 0.2 } = {}) {
+  const { ghi_wm2: G, dni_wm2: B, dhi_wm2: Dh } = clima, n = G.length, out = new Float64Array(n);
+  const lat = clima.lat, lon = clima.lon, utc = clima.utcLocal ?? 3, f = (lat * Math.PI) / 180, sur = lat < 0;
+  const b = (beta * Math.PI) / 180, nFija = [0, sur ? Math.sin(b) : -Math.sin(b), Math.cos(b)], rMax = (55 * Math.PI) / 180;
+  for (let t = 0; t < n; t++) {
+    const u = t + utc - 0.5, dia = (Math.floor(u / 24) % 365) + 1, h = ((u % 24) + 24) % 24;
+    const Bq = (2 * Math.PI * (dia - 81)) / 364, eot = 9.87 * Math.sin(2 * Bq) - 7.53 * Math.cos(Bq) - 1.5 * Math.sin(Bq);
+    const w = ((h + lon / 15 + eot / 60 - 12) * 15 * Math.PI) / 180, dec = ((23.45 * Math.PI) / 180) * Math.sin((2 * Math.PI * (284 + dia)) / 365);
+    const cz = Math.sin(f) * Math.sin(dec) + Math.cos(f) * Math.cos(dec) * Math.cos(w);
+    // Vector al sol (este, norte, arriba)
+    const sE = -Math.cos(dec) * Math.sin(w), sN = Math.cos(f) * Math.sin(dec) - Math.sin(f) * Math.cos(dec) * Math.cos(w), sU = cz;
+    let nv = nFija;
+    if (montaje === "seguidor") {
+      let R = Math.atan2(sE, Math.max(sU, 1e-6));
+      const tmp = Math.min(1, Math.abs(Math.cos(R)) / gcr);
+      R -= Math.sign(R) * Math.acos(tmp);                       // retroceso
+      R = Math.max(-rMax, Math.min(rMax, R));
+      nv = [Math.sin(R), 0, Math.cos(R)];
+    }
+    const cosi = nv[0] * sE + nv[1] * sN + nv[2] * sU, cb = nv[2];
+    const ai = cz > 0 ? Math.min(1, B[t] / (1367 * (1 + 0.033 * Math.cos((2 * Math.PI * dia) / 365)))) : 0;
+    const rb = cz > 0.087 ? Math.max(0, cosi) / cz : 0;
+    out[t] = Math.max(0, (cz > 0 ? B[t] * Math.max(0, cosi) : 0) + Dh[t] * (ai * rb + (1 - ai) * (1 + cb) / 2) + G[t] * albedo * (1 - cb) / 2);
+  }
+  return out;
+}
+// Inclinación fija (hacia el ecuador, 0-60°) que da más radiación anual sobre el panel.
+export function inclinacionOptima(clima) {
+  let mejor = 0, eMax = -1;
+  for (let beta = 0; beta <= 60; beta += 1) {
+    const e = radiacionPanel(clima, { montaje: "fija", beta }).reduce((a, x) => a + x, 0);
+    if (e > eMax) { eMax = e; mejor = beta; }
+  }
+  return mejor;
+}
+
 /* ---------- Economía (params.py y funciones.py) ---------- */
 
 export function tasaReal(dn, ie) { return (dn - ie) / (1 + ie); }

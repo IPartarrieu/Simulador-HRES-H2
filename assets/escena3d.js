@@ -4,7 +4,7 @@
 // (recurso eólico o solar, calculado en zona.js con la grilla `rejilla`). Usa three.js (vendor/three).
 import * as THREE from "../vendor/three/three.module.min.js";
 import { OrbitControls } from "../vendor/three/OrbitControls.js";
-import { relieve, mosaico, nivelTesela as nivel, N_RELIEVE as N } from "./zona.js?v=20261016c";
+import { relieve, mosaico, nivelTesela as nivel, N_RELIEVE as N } from "./zona.js?v=20261016d";
 
 const cacheTerreno = new Map();
 const lim = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -185,25 +185,34 @@ export async function crearVista3D(contenedor, op) {
   // Paneles: filas inclinadas en β mirando al norte, partidas en mesas de hasta 10 m (InstancedMesh). Cada mesa sigue
   // la pendiente este-oeste del terreno en su centro (como las mesas reales, que se adaptan al terreno a lo largo de la
   // fila) y conserva su inclinación β respecto de la horizontal; su borde más bajo queda a 0,6 m del suelo bajo él.
-  const filas = [], lado = op.geo.lado, nf = Math.max(1, Math.round(lado / op.pitchM));
-  for (const [x, y] of op.geo.pv) for (let f = 0; f < nf; f++) filas.push([x, y - lado / 2 + (f + 0.5) * (lado / nf)]);
+  // Con seguidores (op.seguidor) las filas van de norte a sur, con las mesas en la posición del mediodía (horizontales)
+  // siguiendo la pendiente norte-sur, y el eje a 1,6 m del suelo.
+  const ns = !!op.seguidor, filas = [], lado = op.geo.lado, nf = Math.max(1, Math.round(lado / op.pitchM));
+  for (const [x, y] of op.geo.pv) for (let f = 0; f < nf; f++) filas.push(ns ? [x - lado / 2 + (f + 0.5) * (lado / nf), y] : [x, y - lado / 2 + (f + 0.5) * (lado / nf)]);
   const grupoPv = new THREE.Group(); escena.add(grupoPv);
   if (filas.length) {
-    const beta = (op.beta * Math.PI) / 180, fondo = (op.largoMesa * Math.cos(beta)) / 2, subida = (op.largoMesa / 2) * Math.sin(beta);
+    const beta = ns ? 0 : (op.beta * Math.PI) / 180, fondo = (op.largoMesa * Math.cos(beta)) / 2, subida = (op.largoMesa / 2) * Math.sin(beta);
     const nSeg = Math.max(1, Math.min(Math.ceil(lado / 10), Math.floor(30000 / filas.length))), lSeg = lado / nSeg;
     const mesas = [], dx = Math.min(lSeg / 2, paso / 4);
     for (const [x, y] of filas) for (let k = 0; k < nSeg; k++) {
+      if (ns) {
+        const ys = y - lado / 2 + (k + 0.5) * lSeg, h0 = altura(x, ys);
+        const pend = (altura(x, ys + dx) - altura(x, ys - dx)) / (2 * dx);                  // pendiente norte-sur
+        mesas.push([x, ys, Math.max(altura(x - fondo, ys), h0, altura(x + fondo, ys)) + 1.6, h0, 0, Math.atan(pend)]);
+        continue;
+      }
       const xs = x - lado / 2 + (k + 0.5) * lSeg, h0 = altura(xs, y);
       const pend = (altura(xs + dx, y) - altura(xs - dx, y)) / (2 * dx);                   // pendiente este-oeste
       const base = Math.max(altura(xs, y - fondo), h0, altura(xs, y + fondo)) + 0.6;        // norte-sur: sobre lo más alto
-      mesas.push([xs, y, base, h0, Math.atan(pend)]);
+      mesas.push([xs, y, base, h0, Math.atan(pend), -beta]);
     }
     const pv = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), mat("#2456A6", { metalness: 0.5, roughness: 0.22 }), mesas.length);
     const postes = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.08, 0.08, 1, 6), mat("#9AA3AD", { metalness: 0.6 }), mesas.length);
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), q0 = new THREE.Quaternion(), giro = new THREE.Euler(0, 0, 0, "ZXY");
-    mesas.forEach(([x, y, base, suelo, rol], i) => {
-      giro.set(-beta, 0, rol); q.setFromEuler(giro);
-      const s = new THREE.Vector3((lSeg * 0.97) / Math.cos(rol), 0.12, op.largoMesa);          // largo a lo largo de la pendiente
+    mesas.forEach(([x, y, base, suelo, rol, rx], i) => {
+      giro.set(rx, 0, rol); q.setFromEuler(giro);
+      const s = ns ? new THREE.Vector3(op.largoMesa, 0.12, (lSeg * 0.97) / Math.cos(rx))            // largo a lo largo de la pendiente
+        : new THREE.Vector3((lSeg * 0.97) / Math.cos(rol), 0.12, op.largoMesa);
       pv.setMatrixAt(i, m4.compose(new THREE.Vector3(x - cx, base + subida, -(y - cy)), q, s));
       const largo = base + subida - suelo;
       postes.setMatrixAt(i, m4.compose(new THREE.Vector3(x - cx, suelo + largo / 2, -(y - cy)), q0, new THREE.Vector3(1, largo, 1)));
