@@ -4,7 +4,7 @@
 // (recurso eólico o solar, calculado en zona.js con la grilla `rejilla`). Usa three.js (vendor/three).
 import * as THREE from "../vendor/three/three.module.min.js";
 import { OrbitControls } from "../vendor/three/OrbitControls.js";
-import { relieve, mosaico, nivelTesela as nivel, N_RELIEVE as N } from "./zona.js?v=20261016d";
+import { relieve, mosaico, nivelTesela as nivel, N_RELIEVE as N } from "./zona.js?v=20261016e";
 
 const cacheTerreno = new Map();
 const lim = (v, a, b) => Math.min(b, Math.max(a, v));

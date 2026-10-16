@@ -9,10 +9,10 @@
 <meta name="description" content="Simulador y optimizador del dimensionamiento de un sistema híbrido de energías renovables (eólica y solar) con almacenamiento de energía en forma de hidrógeno, para zonas del centro-sur de Chile.">
 <link rel="icon" href="assets/icono.svg" type="image/svg+xml">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="assets/style.css?v=20261016d">
+<link rel="stylesheet" href="assets/style.css?v=20261016e">
 <script src="vendor/chart.umd.min.js" defer></script>
 <script src="vendor/leaflet/leaflet.js" defer></script>
-<script type="module" src="assets/app.js?v=20261016d"></script>
+<script type="module" src="assets/app.js?v=20261016e"></script>
 </head>
 <body>
 <header class="top">
@@ -600,12 +600,18 @@
       <details class="termino"><summary>Distribución de aerogeneradores</summary>
         <p>Grilla dentro de la zona con separación s<sub>x</sub>·D en el eje del viento y s<sub>y</sub>·D en la dirección transversal (D: diámetro del rotor), con retiro desde el borde igual a un factor por la altura de punta (h<sub>buje</sub> + D/2). Se prueban filas alineadas y escalonadas, y se elige la que deja más posiciones. Luego se ordenan las posiciones para maximizar la energía: en cada paso entra la que más suma al parque (su producción con las estelas que recibe, menos lo que su estela quita a los ya instalados). Así, los primeros n aerogeneradores de la lista son el mejor parque de n equipos que encuentra el método. Se evalúan hasta 600 posiciones cercanas al centro y parques de hasta 150 equipos.</p>
       </details>
+      <details class="termino"><summary>Viento sobre el relieve (modelo simplificado)</summary>
+        <p>La serie de viento es de un solo punto (ERA5 representa el promedio de una celda de unos 30 km), pero sobre una loma el viento se acelera y en un valle o tras un cerro se frena. El simulador usa la regla de Jackson y Hunt (1975): sobre una loma de altura H y semiancho L, la aceleración relativa es cercana a 2H/L. Para cada punto y cada sector de la rosa, H es la altura del punto sobre el terreno que tiene viento arriba (promedio a 125-1000 m en la dirección de donde sopla) y L = 500 m:</p>
+        <p class="ecuacion">ΔS<sub>s</sub>(p) = lím<sub>[−0,3 ; 0,6]</sub>( 2 · (z<sub>p</sub> − z̄<sub>viento arriba</sub>) / L ) &nbsp;&nbsp; f<sub>s</sub>(p) = (1 + ΔS<sub>s</sub>(p)) / (1 + ΔS̄<sub>s</sub>) &nbsp;&nbsp; v = v<sub>serie</sub> · f<sub>s</sub>(p) · (1 − δ<sub>estelas</sub>)</p>
+        <p>El promedio del área queda igual al de la serie: el relieve solo redistribuye el viento. Los límites evitan aceleraciones irreales: en lomas empinadas el flujo se separa y deja de acelerarse. La ubicación de los aerogeneradores y la simulación usan el viento corregido de cada posición, así que el optimizador prefiere las lomas y bordes de terrazas expuestos al viento dominante.</p>
+        <p class="en-sim">Es un orden de magnitud: en una loma aislada de 100 m da cerca de +22 % de viento en la cima. No reemplaza un modelo de flujo (WAsP, CFD) ni una campaña de medición, que sí hacen falta antes de construir.</p>
+      </details>
       <details class="termino"><summary>Efecto estela (modelo de Jensen)</summary>
         <p>Un aerogenerador extrae energía del viento y deja detrás una estela más lenta que se ensancha con la distancia. El simulador usa el modelo de Jensen (Katić, 1986), el de WAsP y de la mayoría de los programas de diseño de parques, con expansión k = 0,075 (terreno abierto) y el coeficiente de empuje C<sub>T</sub> que sale de la curva de potencia del equipo (teoría del momento: C<sub>p</sub> = P/(½ρAv³) = 4a(1 − a)², C<sub>T</sub> = 4a(1 − a)), promediado según la energía. Un rotor que extrae poco del viento deja una estela débil. El déficit en un rotor a la distancia x aguas abajo es proporcional al área del rotor que cae dentro de la estela, y los déficits de varias estelas se suman en cuadratura:</p>
         <p class="ecuacion">δ = (1 − √(1 − C<sub>T</sub>)) · ( R / (R + k·x) )² · A<sub>solape</sub>/A<sub>rotor</sub> &nbsp;&nbsp; δ<sub>total</sub> = √( Σ δ<sub>i</sub>² ) &nbsp;&nbsp; v = v<sub>libre</sub> · (1 − δ<sub>total</sub>)</p>
         <p>Las estelas se calculan en 36 sectores de 10°. Con la dirección horaria del viento (ERA5 a 100 m o tu archivo), cada hora usa la eficiencia de su sector; si el recurso no trae la dirección, se usa una rosa de dos lóbulos centrada en el eje dominante. La potencia con el viento reducido sale de la misma curva del aerogenerador, con la densidad del aire de cada hora.</p>
         <p class="ecuacion">η<sub>parque</sub>(n) = Σ<sub>t</sub> Σ<sub>i≤n</sub> P(v<sub>t</sub>(1 − δ<sub>i</sub>)) / ( n · Σ<sub>t</sub> P(v<sub>t</sub>) ) &nbsp;&nbsp; P<sub>WT,t</sub> = n · P<sub>1,t</sub> · η<sub>sector(t)</sub>(n)</p>
-        <p class="en-sim">HOMER aplica las pérdidas por estela como un porcentaje fijo que ingresa el usuario. Aquí dependen de la distribución, del número de aerogeneradores y del viento de cada hora, y el optimizador las ve al probar cada configuración. No se modela el efecto del relieve sobre el viento (aceleración en lomas).</p>
+        <p class="en-sim">HOMER aplica las pérdidas por estela como un porcentaje fijo que ingresa el usuario. Aquí dependen de la distribución, del número de aerogeneradores y del viento de cada hora, y el optimizador las ve al probar cada configuración. El relieve se considera con el modelo simplificado de «Viento sobre el relieve».</p>
       </details>
       <details class="termino"><summary>Filas de paneles y GCR</summary>
         <p>Los paneles miran al norte con inclinación β (la latitud). La distancia entre filas evita sombras entre las 10 y las 14 h solares del 21 de junio (criterio usual de diseño). Lo fija el ángulo de perfil α<sub>p</sub>, la altura del sol vista en el plano norte-sur, a las 10 h de ese día:</p>
@@ -625,7 +631,7 @@
         <p class="ecuacion">v̄(p) = (1/N) Σ<sub>s</sub> V<sub>s</sub> · (1 − δ<sub>s</sub>(p)) &nbsp;&nbsp; V<sub>s</sub> = Σ<sub>t∈s</sub> v<sub>buje,t</sub></p>
         <p><b>Recurso solar:</b> radiación anual sobre el suelo según la pendiente y la orientación del relieve (Terrain Tiles), la sombra del relieve cercano (horizonte en 16 direcciones) y la de los aerogeneradores. Se calcula con cielo despejado y se escala por la nubosidad de la serie (capa «en el suelo»; la capa «en los paneles» usa el recurso de cada celda):</p>
         <p class="ecuacion">cos θ = n̂ · ŝ &nbsp;&nbsp; H(p) = k<sub>c</sub> · Σ [ DNI · máx(0, cos θ) · 1<sub>sol sobre el horizonte</sub> + G<sub>dif</sub> (1 + cos pendiente)/2 ] &nbsp;&nbsp; k<sub>c</sub> = Σ GTI<sub>serie</sub> / Σ GTI<sub>despejado</sub></p>
-        <p class="en-sim">La escala de colores va del mínimo al máximo dentro de la zona. El mapa eólico no incluye el efecto del relieve sobre el viento, porque la serie es de un solo punto.</p>
+        <p class="en-sim">La escala de colores va del mínimo al máximo dentro de la zona. El mapa eólico incluye el relieve con el modelo simplificado de «Viento sobre el relieve».</p>
       </details>
       <details class="termino"><summary>Recurso solar de cada celda</summary>
         <p>La zona se divide en celdas (hasta ~3000). Para cada una se calcula qué fracción de la radiación de cielo despejado sobre un panel sin sombras llega de verdad a mesas fijas inclinadas β hacia el norte, con el GCR del diseño. Se descuentan la sombra del relieve (el sol bajo el horizonte de la celda, en 16 direcciones) y la sombra entre filas según la pendiente norte-sur σ: en una ladera al norte la fila de adelante queda más baja y sombrea menos; en una al sur, más.</p>

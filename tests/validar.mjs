@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import { decodificarSerie } from "../assets/codec.js";
 import { CATALOGO, ECONOMIA_TESIS, prepararCaso, simular, crf, tasaReal, npcUnidad, potenciaWT, radiacionPanel } from "../assets/model.js";
-import { ctEfectivo, estelaParque, eficienciaParque, distribucionPaneles, sombraFilas, proyeccion, interaccionPV, distribuirAerogeneradores, factorCeldasFV } from "../assets/zona.js";
+import { factoresRelieve, ctEfectivo, estelaParque, eficienciaParque, distribucionPaneles, sombraFilas, proyeccion, interaccionPV, distribuirAerogeneradores, factorCeldasFV } from "../assets/zona.js";
 
 const datos = JSON.parse(readFileSync(new URL("../data/ejemplo_45s_2018.json", import.meta.url)));
 datos.demanda_kw = decodificarSerie(datos.demanda_codificada);
@@ -125,6 +125,16 @@ otros.push(
   ["panel fijo: correlación horaria con ERA5 > 0,99", +(sxy / Math.sqrt(sxx * syy) > 0.99), 1, 0],
   ["panel fijo: energía anual como ERA5 (±5 %)", suma(poaT) / suma(gtiT), 1, 0.05],
   ["seguidor: 10-30 % más que fijo", +(suma(radiacionPanel(talca, { montaje: "seguidor" })) / suma(poaT) - 1 > 0.1 && suma(radiacionPanel(talca, { montaje: "seguidor" })) / suma(poaT) - 1 < 0.3), 1, 0],
+);
+// Viento sobre el relieve (modelo simplificado): en plano no cambia nada; en una loma aislada, la cima recibe más
+// viento que el llano (en promedio de los sectores) y el promedio del área se mantiene.
+const loma = (h) => ({ x0: -3000, x1: 3000, y0: -3000, y1: 3000, n: 64, elev: Array.from({ length: 64 * 64 }, (_, q) => {
+  const x = -3000 + ((q % 64) / 63) * 6000, y = 3000 - (Math.floor(q / 64) / 63) * 6000; return h * Math.exp(-(x * x + y * y) / (2 * 400 ** 2)); }) });
+const media36 = (f, k) => { let m = 0; for (let s = 0; s < 36; s++) m += f[k * 36 + s]; return m / 36; };
+const fPlano = factoresRelieve(loma(0), [[0, 0]]), fLoma = factoresRelieve(loma(100), [[0, 0], [2500, 0]]);
+otros.push(
+  ["relieve plano: factor 1", media36(fPlano, 0), 1, 1e-9],
+  ["loma de 100 m: la cima recibe más viento que el llano", +(media36(fLoma, 0) > 1.1 && media36(fLoma, 0) > media36(fLoma, 1)), 1, 0],
 );
 for (const [nombre, a, e, tol] of otros) {
   const ok = cerca(a, e, tol); fallas += ok ? 0 : 1;

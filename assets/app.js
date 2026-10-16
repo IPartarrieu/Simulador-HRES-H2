@@ -1,10 +1,10 @@
 // Página del Simulador HRES-H2: arma el caso con lo que elige la persona, reparte las simulaciones entre
 // Web Workers, ejecuta el método de optimización (uno o varios objetivos) y muestra los resultados.
-import { CATALOGO, MODULOS, NOMBRES, ECONOMIA_TESIS, FUENTES, OBJETIVOS_MO, potenciaPV, potenciaWT, factorFrio, radiacionPanel, inclinacionOptima, limitesPorDefecto, flujoCaja, crf, tasaReal } from "./model.js?v=20261016d";
-import { monteCarlo, genetico, shade, pso, gwo, woa, eo, nsga2, mopso, aptitud, PENALIZACION } from "./optimizers.js?v=20261016d";
-import * as dem from "./demand.js?v=20261016d";
-import { svgDiagrama, svgLayout, descargarSVG, descargarPNG, descargar } from "./diagram.js?v=20261016d";
-import * as zona from "./zona.js?v=20261016d";
+import { CATALOGO, MODULOS, NOMBRES, ECONOMIA_TESIS, FUENTES, OBJETIVOS_MO, potenciaPV, potenciaWT, factorFrio, radiacionPanel, inclinacionOptima, limitesPorDefecto, flujoCaja, crf, tasaReal } from "./model.js?v=20261016e";
+import { monteCarlo, genetico, shade, pso, gwo, woa, eo, nsga2, mopso, aptitud, PENALIZACION } from "./optimizers.js?v=20261016e";
+import * as dem from "./demand.js?v=20261016e";
+import { svgDiagrama, svgLayout, descargarSVG, descargarPNG, descargar } from "./diagram.js?v=20261016e";
+import * as zona from "./zona.js?v=20261016e";
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -465,7 +465,8 @@ async function estelaActual(d) {
   if (!clima) return null;
   const lay = cacheLayout.lay, wt = JSON.stringify(wtModelo());
   if (cacheEstela.lay !== lay || cacheEstela.wt !== wt || cacheEstela.fuente !== fuenteViento()) {
-    const val = zona.estelaParque(estado.zona.pts, lay.posiciones, { D: d.op.D, wt: wtModelo(), clima, eje: d.op.eje });
+    const rel = await zona.relieve(estado.zona.pts).catch(() => null);      // sin relieve: viento uniforme
+    const val = zona.estelaParque(estado.zona.pts, lay.posiciones, { D: d.op.D, wt: wtModelo(), clima, eje: d.op.eje, rel });
     Object.assign(cacheEstela, { lay, wt, fuente: fuenteViento(), val });
   }
   return cacheEstela.val;
@@ -494,7 +495,7 @@ function renderDistribucion() {
     kpi("Paneles que caben", fmt(d.nPv), `${fmt((d.nPv * pv.pr) / 1000, 2)} MW · ${fmt(p.m2PorPanel, 1)} m² por panel`),
     p.seguidor ? kpi("Filas de paneles", "Seguidor norte-sur", `gira ±55° de este a oeste con retroceso; ocupación ${fmt(p.gcr * 100)} % (GCR), sin sombra entre filas`)
       : kpi("Filas de paneles", `${fmt(p.beta)}° de inclinación${montaje() === "fija-opt" ? " (óptima)" : ""}`, `ocupación ${fmt(p.gcr * 100)} % (GCR); sin sombra de 10 a 14 h en junio (perfil ${fmt(p.alfa, 1)}°); pérdida anual por sombra entre filas ${fmt(p.sombra * 100, 1)} %`),
-    ...(e ? [kpi("Eficiencia del parque (estelas)", `${fmt(zona.eficienciaParque(e, Math.min(10, e.nMax)) * 100, 1)} % con ${fmt(Math.min(10, e.nMax))}`, `aerogeneradores → energía respecto de sin estelas: ${efic}${e.conDireccion ? "" : " (rosa estimada con el eje dominante)"}`)] : []));
+    ...(e ? [kpi("Factor del parque (relieve y estelas)", `${fmt(zona.eficienciaParque(e, Math.min(10, e.nMax)) * 100, 1)} % con ${fmt(Math.min(10, e.nMax))}`, `aerogeneradores → energía respecto del viento de la serie: ${efic}${e.conRelieve ? `; el relieve aporta ${fmt((zona.factorRelieve(e, Math.min(10, e.nMax)) - 1) * 100, 1)} % con ${fmt(Math.min(10, e.nMax))} (modelo simplificado)` : ""}${e.conDireccion ? "" : " (rosa estimada con el eje dominante)"}`)] : []));
 }
 
 function renderDiagrama() {
@@ -689,7 +690,7 @@ class Pool {
   constructor(n) {
     this.pend = new Map(); this.id = 0;
     this.workers = Array.from({ length: n }, () => {
-      const w = new Worker(new URL("./worker.js?v=20261016d", import.meta.url), { type: "module" });
+      const w = new Worker(new URL("./worker.js?v=20261016e", import.meta.url), { type: "module" });
       w.onmessage = (e) => {
         const p = this.pend.get(e.data.id);
         if (!p) return;
@@ -1109,9 +1110,12 @@ function renderLayoutResultado(cfg, r, meta) {
   else if (cfg[0] > dist.posiciones.length) notas.push(`Solo caben ${fmt(dist.posiciones.length)} de los ${fmt(cfg[0])} aerogeneradores.`);
   if (!geo.completo) notas.push("El campo fotovoltaico no cabe completo en el terreno que dejan libre los aerogeneradores.");
   const perd = [];
-  if (cfg[0] && dist.estela) perd.push(`estelas entre aerogeneradores ${fmt((1 - zona.eficienciaParque(dist.estela, cfg[0])) * 100, 1)} % de la energía eólica`);
+  if (cfg[0] && dist.estela) {
+    perd.push(`estelas entre aerogeneradores ${fmt((1 - zona.eficienciaEstelas(dist.estela, cfg[0])) * 100, 1)} % de la energía eólica`);
+    if (dist.estela.conRelieve) perd.push(`relieve ${zona.factorRelieve(dist.estela, cfg[0]) >= 1 ? "+" : ""}${fmt((zona.factorRelieve(dist.estela, cfg[0]) - 1) * 100, 1)} % sobre el viento de la serie (modelo simplificado)`);
+  }
   if (cfg[1]) perd.push(`campo solar al ${fmt(geo.factorPv * 100, 1)} % de un panel sin sombras (${geo.conRelieve ? "relieve, " : ""}sombra entre filas${cfg[0] ? ` y de los aerogeneradores, esta última ${fmt(geo.sombraPv * 100, 2)} %` : ""}); el terreno libre rinde entre ${fmt(geo.factorRango[0] * 100, 1)} y ${fmt(geo.factorRango[1] * 100, 1)} %`);
-  if (perd.length) notas.push(`Pérdidas descontadas en la simulación: ${perd.join("; ")}.`);
+  if (perd.length) notas.push(`Efectos descontados en la simulación: ${perd.join("; ")}.`);
   notas.push(`Los aerogeneradores están en las posiciones que más energía dan con las estelas de la rosa de vientos; los paneles ocupan primero el terreno de mayor recurso solar${dist.op.compartir ? ", también entre los aerogeneradores" : ""} (laderas al norte, sin sombra del relieve ni de los aerogeneradores) y, entre celdas que rinden casi lo mismo, las más cercanas al bloque de potencia. Es un anteproyecto: el trazado final requiere topografía, accesos y un estudio de viento en terreno.`);
   $("#layout-nota").textContent = notas.join(" ");
 }
@@ -1119,8 +1123,8 @@ function renderLayoutResultado(cfg, r, meta) {
 // Mapa de recurso sobre el terreno de la vista 3D (se calcula una vez por vista y capa).
 let datosMapa = null;
 const CAPAS = {
-  viento: { paleta: "viento", titulo: "Viento medio anual a la altura del buje (m/s), con las estelas de los aerogeneradores", unidad: "m/s", dec: 2,
-    nota: "Velocidad media a la altura del buje según la serie de viento y su rosa de vientos, menos el déficit de las estelas (Jensen). No incluye el efecto del relieve sobre el viento: la serie es de un solo punto." },
+  viento: { paleta: "viento", titulo: "Viento medio anual a la altura del buje (m/s), con el relieve (modelo simplificado) y las estelas", unidad: "m/s", dec: 2,
+    nota: "Velocidad media a la altura del buje según la serie de viento y su rosa de vientos, acelerada en lomas y frenada en zonas resguardadas por un modelo simplificado del relieve (Jackson-Hunt, ΔS ≈ 2H/L), menos el déficit de las estelas (Jensen). Es un orden de magnitud: no reemplaza un modelo de flujo ni mediciones." },
   solar: { titulo: "Radiación solar anual sobre el suelo (kWh/m²·año)", unidad: "kWh/m²", dec: 0, paleta: "solar",
     nota: "Según la pendiente y orientación del terreno (las laderas al norte reciben más), la sombra del relieve cercano y de los aerogeneradores, con la nubosidad de la serie. Es el recurso del suelo; los paneles van en mesas con inclinación fija y reciben lo de la capa «Recurso solar en los paneles»." },
   panel: { titulo: "Radiación anual sobre los paneles si se instalan en cada punto (kWh/m²·año)", unidad: "kWh/m²", dec: 0, paleta: "solar",
@@ -1138,7 +1142,7 @@ function capa3d() {
   const wt = d.equipos.wt;
   const rej = tipo === "viento" ? { ...v.rejilla, n: 160 } : v.rejilla;    // el viento, más fino: las estelas son angostas
   const sol = { lat: zona.centro(d.pts)[0], beta: d.beta, gcr: d.largoMesa / d.pitchM, gti: d.clima.gti_wm2, poa: estado.poa, seguidor: d.seguidor, turb: d.geo.turb, hub: wt.hub, D: wt.rotor };
-  d.mapas[tipo] ??= tipo === "viento" ? zona.mapaViento(rej, { turb: d.geo.turb, D: wt.rotor, hub: wt.hub, clima: d.clima, eje: d.eje, wt: { ...wt, curva: $("#wt-curva").value } })
+  d.mapas[tipo] ??= tipo === "viento" ? zona.mapaViento(rej, { turb: d.geo.turb, D: wt.rotor, hub: wt.hub, clima: d.clima, eje: d.eje, wt: { ...wt, curva: $("#wt-curva").value }, rel: v.rejilla })
     : tipo === "panel" ? zona.mapaPanelFV(rej, sol) : zona.mapaSolar(rej, sol);
   const c = CAPAS[tipo], r = v.capa(d.mapas[tipo], c.paleta, zona.rangoEnZona(rej, d.mapas[tipo], d.geo.poli));
   $("#v3-escala-titulo").textContent = `${c.titulo}. Escala dentro de la zona:`;
@@ -1156,7 +1160,7 @@ async function mostrar3D(op) {
   const ley = $("#leyenda-3d"); ley.replaceChildren();
   const chip = (color, texto) => { const s = document.createElement("span"), i = document.createElement("i"); i.style.background = color; s.append(i, texto); ley.appendChild(s); };
   try {
-    const m = await import("./escena3d.js?v=20261016d");
+    const m = await import("./escena3d.js?v=20261016e");
     chip("#FF8A3D", "Zona");
     if (op.cfg[0]) chip("#F7F8FA", `Aerogeneradores (${fmt(op.cfg[0])})`);
     if (op.cfg[1]) chip("#2456A6", `Paneles (${fmt(op.cfg[1])})`);
