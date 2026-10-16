@@ -4,7 +4,7 @@
 // Uso: node tests/validar.mjs
 import { readFileSync } from "node:fs";
 import { decodificarSerie } from "../assets/codec.js";
-import { CATALOGO, ECONOMIA_TESIS, prepararCaso, simular, crf, tasaReal, npcUnidad, potenciaWT, radiacionPanel } from "../assets/model.js";
+import { CATALOGO, ECONOMIA_TESIS, prepararCaso, simular, crf, tasaReal, npcUnidad, potenciaWT, radiacionPanel, violacion } from "../assets/model.js";
 import { ruidoEn, verificarViviendas, factoresRelieve, ctEfectivo, estelaParque, eficienciaParque, distribucionPaneles, sombraFilas, proyeccion, interaccionPV, distribuirAerogeneradores, factorCeldasFV } from "../assets/zona.js";
 
 const datos = JSON.parse(readFileSync(new URL("../data/ejemplo_45s_2018.json", import.meta.url)));
@@ -160,6 +160,16 @@ otros.push(
   ["viviendas: hay aerogeneradores y todos a ≥ 300 m", +(eR.nPermitidos > 0 && vR.dist >= 300), 1, 0],
   ["viviendas: ruido en la casa ≤ 40 dB(A)", +(vR.ruido <= 40 + 1e-9), 1, 0],
   ["viviendas: sombra ≤ 30 h/año y ≤ 30 min/día", +(vR.anual <= 30 && vR.dia <= 30), 1, 0],
+);
+// Confiabilidad: el umbral del LOLE es un parámetro (con 0,01 es la tesis) y LOLE y LPSP se pueden exigir a la vez.
+const cfgL = [11, 30000, 196, 347, 16455, 69];
+const umb = (u) => simular(prepararCaso({ ...base, equipos, umbralLole: u }), cfgL);
+const rL = umb(0.01);
+otros.push(
+  ["LOLE con umbral 0,01 = tesis", rL.lole, simular(caso, cfgL).lole, 0],
+  ["LOLE con umbral 5 kWh ≤ con 0,01", +(umb(5).lole <= rL.lole), 1, 0],
+  ["LOLE y LPSP a la vez: suma las dos violaciones", violacion(rL, { usarLole: true, usarLpsp: true, h: 0, lpspMax: 0 }, caso, cfgL),
+    rL.lole + rL.lpsp * 100, 1e-9],
 );
 for (const [nombre, a, e, tol] of otros) {
   const ok = cerca(a, e, tol); fallas += ok ? 0 : 1;

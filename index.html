@@ -3,16 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://tile.openstreetmap.org https://a.tile.opentopomap.org https://b.tile.opentopomap.org https://c.tile.opentopomap.org https://server.arcgisonline.com https://s3.amazonaws.com; connect-src https://overpass-api.de https://overpass.kumi.systems https://overpass.private.coffee 'self' https://archive-api.open-meteo.com https://api.open-meteo.com; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://tile.openstreetmap.org https://a.tile.opentopomap.org https://b.tile.opentopomap.org https://c.tile.opentopomap.org https://server.arcgisonline.com https://s3.amazonaws.com; connect-src https://overturemaps-extras-us-west-2.s3.us-west-2.amazonaws.com 'self' https://archive-api.open-meteo.com https://api.open-meteo.com; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>Simulador HRES-H2 · dimensionamiento de sistemas híbridos con hidrógeno</title>
 <meta name="description" content="Simulador y optimizador del dimensionamiento de un sistema híbrido de energías renovables (eólica y solar) con almacenamiento de energía en forma de hidrógeno, para zonas del centro-sur de Chile.">
 <link rel="icon" href="assets/icono.svg" type="image/svg+xml">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="assets/style.css?v=20261016g">
+<link rel="stylesheet" href="assets/style.css?v=20261016i">
 <script src="vendor/chart.umd.min.js" defer></script>
 <script src="vendor/leaflet/leaflet.js" defer></script>
-<script type="module" src="assets/app.js?v=20261016g"></script>
+<script type="module" src="assets/app.js?v=20261016i"></script>
 </head>
 <body>
 <header class="top">
@@ -60,13 +60,14 @@
         <p class="status" id="zona-estado">Aún no hay una zona dibujada.</p>
         <h3 class="sub">Viviendas cercanas</h3>
         <div class="btns sin-margen">
-          <button class="btn btn-small" type="button" id="viv-osm" disabled>Buscar en OpenStreetMap</button>
+          <button class="btn btn-small" type="button" id="viv-osm" disabled>Detectar en imágenes satelitales</button>
           <button class="btn btn-small" type="button" id="viv-agregar">Agregar con clic</button>
           <button class="btn btn-small" type="button" id="viv-borrar">Borrar viviendas</button>
         </div>
-        <p class="fine">Las viviendas limitan dónde pueden ir los aerogeneradores (ver «Restricciones ambientales» en la pestaña Equipos). Se buscan hasta 1,5 km alrededor de la zona; revisa el mapa satelital y agrega las que falten. Un clic sobre una vivienda la quita. En rojo, la distancia mínima; en naranjo punteado, donde un solo aerogenerador llega al límite de ruido.</p>
+        <p class="fine">Las viviendas limitan dónde pueden ir los aerogeneradores (ver «Restricciones ambientales» en la pestaña Equipos). «Detectar» usa las huellas de edificios que Microsoft y Google identificaron con aprendizaje automático en imágenes satelitales, junto con las de OpenStreetMap, publicadas por Overture Maps; busca hasta 1,5 km alrededor de la zona y omite construcciones de menos de 20 m². No distingue casas de galpones: revisa la vista satelital, quita lo que no sea vivienda y agrega lo que falte. Un clic sobre una vivienda la quita. En rojo, la distancia mínima; en naranjo punteado, donde un solo aerogenerador llega al límite de ruido.</p>
         <p class="status" id="viv-estado"></p>
         <div class="kpis compactos" id="zona-kpis"></div>
+        <div class="kpis compactos" id="zona-potencial"></div>
         <p class="fine">La zona define cuánto terreno hay para el sistema. En la pestaña <b>Equipos</b> se calcula cuántos aerogeneradores y paneles caben y cómo se distribuyen, una vez conocidos el viento y los equipos elegidos.</p>
       </div>
     </div>
@@ -167,6 +168,7 @@
   <div class="panel" id="panel-equipos" role="tabpanel" hidden>
   <section class="card" id="paso-equipos">
     <div class="card-head"><span class="num">5</span><div><h2>Equipos</h2><p class="muted">Marca o tipo de cada módulo. Puedes editar sus parámetros técnicos y económicos.</p></div></div>
+    <div class="btns sin-margen"><button class="btn btn-small" type="button" id="eq-todos">Que el optimizador elija todos los equipos</button></div>
     <div class="equipos" id="equipos"></div>
     <h3 class="sub">Pérdidas y disponibilidad</h3>
     <div class="form-grid tight">
@@ -247,15 +249,12 @@
     </div>
     <h3 class="sub">Confiabilidad</h3>
     <div class="form-grid">
-      <label>Criterio
-        <select id="conf-tipo">
-          <option value="lole">Horas con déficit al año (LOLE)</option>
-          <option value="lpsp">Probabilidad de pérdida de suministro (LPSP)</option>
-        </select>
-      </label>
+      <label class="check"><input type="checkbox" id="conf-usa-lole" checked> Limitar las horas con déficit al año (LOLE)</label>
       <label data-conf="lole">Horas con déficit permitidas al año (h) <input type="number" id="conf-h" min="0" max="8760" value="0"></label>
-      <label data-conf="lpsp" hidden>LPSP máxima (% de la energía demandada) <input type="number" id="conf-lpsp" min="0" max="100" step="0.1" value="1"></label>
+      <label data-conf="lole">Déficit mínimo para contar una hora (kWh) <input type="number" id="conf-umbral" min="0" max="1000" step="0.01" value="0.01"></label>
       <label class="check" data-conf="lole"><input type="checkbox" id="conf-energia"> Limitar además la energía no suministrada a h × demanda media</label>
+      <label class="check"><input type="checkbox" id="conf-usa-lpsp"> Limitar la probabilidad de pérdida de suministro (LPSP)</label>
+      <label data-conf="lpsp" hidden>LPSP máxima (% de la energía demandada) <input type="number" id="conf-lpsp" min="0" max="100" step="0.1" value="1"></label>
     </div>
     <h3 class="sub">Objetivo</h3>
     <div class="options" role="radiogroup" aria-label="Tipo de optimización">
@@ -613,12 +612,18 @@
 
     <div class="bib-grupo">
       <h3 class="sub">Zona y terreno</h3>
+      <details class="termino"><summary>Viviendas que podría abastecer la zona</summary>
+        <p>Al cerrar el polígono se estima el potencial de generación: paneles en todo el terreno (con su separación entre filas) y aerogeneradores intercalados en su grilla, con el clima ERA5 del punto prealmacenado más cercano y los equipos elegidos. El número de viviendas resulta de dividir la energía aprovechada por el consumo eléctrico medio de una vivienda en Chile, 2.074 kWh/año (Ministerio de Energía, Caracterización del consumo energético residencial, 2018):</p>
+        <p class="ecuacion">viviendas = f · (E<sub>FV</sub> + E<sub>WT</sub>) / 2.074 kWh &nbsp;&nbsp; f = 0,08 … 0,90</p>
+        <p class="en-sim">El extremo bajo (f ≈ 8 %) corresponde a un sistema aislado 100 % renovable y sin cortes como el caso de ejemplo, que debe sobredimensionarse para el invierno y pierde energía en el ciclo del hidrógeno; el alto (90 %), a uno que aprovecha casi toda la energía, con respaldo o conexión a la red. Es un orden de magnitud: el dimensionamiento real lo entrega la optimización.</p>
+      </details>
       <details class="termino"><summary>Restricciones ambientales (Chile)</summary>
         <p>Las viviendas cercanas (buscadas en OpenStreetMap o marcadas a mano) limitan dónde pueden ir los aerogeneradores. Al elegir las posiciones, cada aerogenerador nuevo solo se acepta si con él todas las viviendas siguen cumpliendo:</p>
         <p><b>Ruido, D.S. 38/2011 del MMA.</b> En zona rural, el nivel máximo en la vivienda es el menor entre el ruido de fondo + 10 dB(A) y el límite de la Zona III (50 dB(A) de noche). Se usa el periodo nocturno, el más exigente. El ruido de cada aerogenerador se estima con una versión simplificada de ISO 9613-2 (divergencia esférica y absorción del aire) y se suman todos:</p>
         <p class="ecuacion">L<sub>p</sub> = L<sub>w</sub> − 20 log r − 11 − 0,005 r &nbsp;&nbsp; L<sub>total</sub> = 10 log Σ 10<sup>L<sub>p,i</sub>/10</sup> ≤ mín(L<sub>fondo</sub> + 10 ; 50)</p>
         <p>L<sub>w</sub> es la potencia acústica: 89,5 dB(A) para el Bergey Excel 10 (42,9 dB(A) a 60 m en su certificación SWCC) y 95 dB(A) para el NPS 100C-24 (50 dB(A) a 50 m en su ficha); para los demás es un valor referencial por tamaño que conviene reemplazar por el del fabricante.</p>
         <p><b>Sombra intermitente, criterio del SEA (2021).</b> En el escenario astronómico más desfavorable (sol despejado de sol a sol, rotor de frente al sol y girando), cada vivienda a 2 m de altura puede recibir como máximo 30 horas al año y 30 minutos al día. Se calcula con el sol cada 2 minutos, sobre 3° de altura, hasta 10 diámetros del aerogenerador.</p>
+        <p><b>Viviendas detectadas.</b> «Detectar en imágenes satelitales» lee las huellas de edificios de Overture Maps: las que Microsoft y Google identificaron con aprendizaje automático en imágenes satelitales, más las de OpenStreetMap. Se leen solo las teselas de la zona y 1,5 km a la redonda, y se omiten las construcciones de menos de 20 m². No distingue casas de galpones: conviene revisar con la vista satelital.</p>
         <p><b>Distancia mínima.</b> Ninguna ley chilena vigente la fija: los 300 m son un criterio de diseño editable. Un proyecto de ley presentado en septiembre de 2026 propone 5000 m para parques de 3 MW o más.</p>
         <p class="en-sim">Son verificaciones de anteproyecto: un parque sobre 3 MW entra al SEIA, donde se exige medir el ruido de fondo y modelar ruido y sombra con más detalle (relieve, suelo, orientación de las ventanas).</p>
       </details>

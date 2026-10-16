@@ -5,7 +5,7 @@
 // ponytail: rectángulo que cubre las cuatro regiones, no su límite exacto; usar un GeoJSON regional si hace falta precisión.
 export const REGION = { latMin: -39.7, latMax: -34.6, lonMin: -74.0, lonMax: -70.3 };
 export const AREA_MAX_KM2 = 25;          // límite para que la zona sea un terreno, no una comuna entera
-import { potenciaWT, vientoBuje } from "./model.js?v=20261016g";
+import { potenciaWT, vientoBuje } from "./model.js?v=20261016i";
 
 const R = 6378137;
 const rad = (g) => (g * Math.PI) / 180, grados = (r) => (r * 180) / Math.PI;
@@ -379,26 +379,11 @@ export function interaccionPV(pts, posiciones, op, rel) {
 
 /* ---------- Restricciones ambientales (Chile) ---------- */
 
-// Viviendas de OpenStreetMap (edificios residenciales o sin tipo) en la zona y un margen, como [lat, lon].
-// ponytail: en zonas rurales OSM puede estar incompleto; la página permite agregar y quitar viviendas a mano.
-const SERVIDORES_OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://overpass.private.coffee/api/interpreter"];
-const TIPOS_VIVIENDA = /^(yes|house|residential|detached|farm|hut|cabin|bungalow|apartments|semidetached_house|terrace|dormitory|static_caravan)$/;
-export async function viviendasOSM(pts, margenM = 1500) {
+// Caja [latMin, lonMin, latMax, lonMax] de la zona con un margen en metros (para buscar viviendas cercanas).
+export function cajaConMargen(pts, margenM = 1500) {
   const lat = pts.map((p) => p[0]), lon = pts.map((p) => p[1]), c = centro(pts);
   const dLat = margenM / 110540, dLon = margenM / (111320 * Math.cos(rad(c[0])));
-  const caja = [Math.min(...lat) - dLat, Math.min(...lon) - dLon, Math.max(...lat) + dLat, Math.max(...lon) + dLon].map((v) => v.toFixed(5)).join(",");
-  const q = `[out:json][timeout:25];(way["building"](${caja});node["building"](${caja}););out center 3000;`;
-  // Los servidores públicos de Overpass a veces rechazan o fallan: se prueban varios, en orden.
-  let d = null, ultimo = "";
-  for (const url of SERVIDORES_OVERPASS) {
-    try {
-      const resp = await fetch(`${url}?data=${encodeURIComponent(q)}`);
-      if (resp.ok) { d = await resp.json(); break; }
-      ultimo = `${new URL(url).host} respondió ${resp.status}`;
-    } catch (err) { ultimo = `${new URL(url).host}: ${err.message}`; }
-  }
-  if (!d) throw new Error(ultimo || "sin respuesta");
-  return d.elements.filter((e) => TIPOS_VIVIENDA.test(e.tags?.building || "")).map((e) => (e.center ? [e.center.lat, e.center.lon] : [e.lat, e.lon]));
+  return [Math.min(...lat) - dLat, Math.min(...lon) - dLon, Math.max(...lat) + dLat, Math.max(...lon) + dLon];
 }
 
 // Ruido de un aerogenerador en un receptor, ISO 9613-2 simplificada: divergencia esférica y absorción del aire
@@ -835,9 +820,10 @@ function pintarCasas(capa, { lista, radio, radioRuido, alClic }) {
 
 // Mapa con dibujo de polígonos: clic agrega un vértice; clic en el primero, doble clic o cerrar() termina la zona.
 // alCerrar(pts) recibe los vértices (o null al borrar); alAviso(texto) informa un vértice rechazado.
-export function crearMapa(el, { alCerrar, alAviso, alCambiarModo }) {
+// alMedir(m²): área que tendría la zona si se cerrara ahora (con el cursor como último vértice), mientras se dibuja.
+export function crearMapa(el, { alCerrar, alAviso, alCambiarModo, alMedir }) {
   const limites = L.latLngBounds([REGION.latMin, REGION.lonMin], [REGION.latMax, REGION.lonMax]);
-  const mapa = L.map(el, { maxBounds: limites.pad(0.15), minZoom: 6, zoomSnap: 0.5 }).fitBounds(limites);
+  const mapa = L.map(el, { maxBounds: limites.pad(0.15), minZoom: 6, zoomSnap: 0.5, preferCanvas: true }).fitBounds(limites);
   const osm = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19, attribution: "© colaboradores de OpenStreetMap" });
   const topo = L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", { maxZoom: 17, attribution: "© OpenStreetMap, SRTM · estilo © OpenTopoMap (CC BY-SA)" });
   const sat = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", { maxZoom: 18, attribution: "Imágenes © Esri, Maxar, Earthstar Geographics" });
@@ -873,6 +859,14 @@ export function crearMapa(el, { alCerrar, alAviso, alCambiarModo }) {
     pts.push(p); pintar(false); alCambiarModo?.(true, pts.length);
   });
   mapa.on("dblclick", () => { if (dibujando) api.cerrar(); });
+  // Vista previa del polígono con el cursor y su área, mientras se dibuja.
+  const previa = L.polygon([], { color: "#C2410C", weight: 1, dashArray: "3 5", fillOpacity: 0.08, interactive: false });
+  mapa.on("mousemove", (e) => {
+    if (!dibujando || pts.length < 2) { previa.remove(); return; }
+    const q = [...pts, [e.latlng.lat, e.latlng.lng]];
+    previa.setLatLngs(q).addTo(mapa);
+    alMedir?.(areaM2(q));
+  });
 
   const api = {
     mapa,
@@ -881,7 +875,7 @@ export function crearMapa(el, { alCerrar, alAviso, alCambiarModo }) {
     borrar() { pts = []; capa.clearLayers(); modo(false); alCerrar(null); },
     cerrar() {
       if (!dibujando || pts.length < 3) return;
-      modo(false); pintar(true);
+      previa.remove(); modo(false); pintar(true);
       mapa.fitBounds(L.polygon(pts).getBounds(), { maxZoom: 15, padding: [30, 30] });
       alCerrar(pts.slice());
     },

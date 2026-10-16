@@ -288,7 +288,8 @@ export function npcUnidad(dev, df, anios, anual = 0) {
 // 16 valores: las 8 cantidades y el índice del equipo de cada módulo (0 = el elegido en la página). Por módulo:
 // wt: [{ eq, wtKw, estela, campoFV, terreno: { aWt, nWtMax } }], pv: [{ eq, pvKw, terreno: { aPv }, m2Panel }],
 // con, ele, ht, fc, bat, dg: [{ eq }]. La posición 0 de cada lista es la del caso base (puede ir vacía).
-export function prepararCaso({ demanda, wtKw, pvKw, equipos, economia, terreno = null, estela = null, campoFV = null, perdidas = null, h2 = null, candidatos = null }) {
+// `umbralLole` (kWh): déficit mínimo para que una hora cuente en el LOLE (0,01 como en la tesis).
+export function prepararCaso({ demanda, wtKw, pvKw, equipos, economia, terreno = null, estela = null, campoFV = null, perdidas = null, h2 = null, candidatos = null, umbralLole = 0.01 }) {
   const eq = { bat: CATALOGO.bat[0], dg: CATALOGO.dg[0], ...equipos };
   const eco = { ...ECONOMIA_TESIS, ...economia };
   // Varios años de clima: las series de potencia traen N × 8760 horas y la demanda (un año) se repite.
@@ -320,7 +321,7 @@ export function prepararCaso({ demanda, wtKw, pvKw, equipos, economia, terreno =
     estela: estela && { eta: Float32Array.from(estela.eta), sec: estela.sec && Uint8Array.from(estela.sec), S: estela.S, nMax: estela.nMax },
     campoFV: campoFV && { ...campoFV, tabla: Float32Array.from(campoFV.tabla) },
     h2: h2 && (h2.ele.cargaMin || h2.ele.aux || h2.comp || h2.fc.cargaMin || h2.fc.aux) ? h2 : null,
-    mods: candidatos && armarModelos(candidatos, { df, anios: eco.anios, perdidas, n }),
+    mods: candidatos && armarModelos(candidatos, { df, anios: eco.anios, perdidas, n }), umbralLole,
   };
 }
 
@@ -414,6 +415,7 @@ export function simular(caso, cfg, completo = false) {
   const etaEle = caso.ele.eta, capEle = nEle * caso.ele.pr;
   const capHt = nHt * caso.ht.cap;
   const etaFc = caso.fc.eta, capFc = nFc * caso.fc.pr;
+  const umbral = caso.umbralLole ?? 0.01;                  // LOLE: horas con déficit sobre este umbral (kWh)
   const H2 = caso.h2, etaEleComp = H2 ? etaEle / (1 + H2.comp * etaEle) : etaEle;   // con la compresión
   const B = caso.bat, capBat = nBat * B.cap, socMin = capBat * B.socMin, pBat = capBat * B.cRate;
   const G = caso.dg, prDg = G.pr;
@@ -516,7 +518,7 @@ export function simular(caso, cfg, completo = false) {
     const loss = lossAcDc + lossEle + lossStr + lossFc + lossDg;
     const def = redondear2(d - sum);                 // igual que round(D - E_sys_D, 2) en Python
     eSum += sum; perdida += loss; ens += def;
-    if (def > 0.01) { lole++; loleAnio[(t / horasAnio) | 0]++; }
+    if (def > umbral) { lole++; loleAnio[(t / horasAnio) | 0]++; }
     ensAnio[(t / horasAnio) | 0] += def;
     if (eStr < h2Min) h2Min = eStr;
     if (completo) { sWt[t] = WT; sPv[t] = PV; sSum[t] = sum; sStr[t] = eStr; sLoss[t] = loss; sDef[t] = def; sSoc[t] = soc; sDg[t] = dgOut; }
@@ -569,9 +571,12 @@ export function simular(caso, cfg, completo = false) {
 // (ec. 2.2.18 y 2.2.19). Devuelve 0 si se cumple; si no, cuánto falta (para las reglas de factibilidad).
 export function violacion(res, crit, caso, cfg) {
   let v = 0;
-  if (crit.tipo === "lpsp") v = Math.max(0, res.lpsp - crit.lpspMax) * 100;
-  else {
-    v = Math.max(0, res.lole - crit.h);
+  // LOLE y LPSP son restricciones independientes (se pueden usar las dos). Sin los indicadores usarLole/usarLpsp
+  // vale `tipo`, como antes.
+  const usaLole = crit.usarLole ?? crit.tipo !== "lpsp", usaLpsp = crit.usarLpsp ?? crit.tipo === "lpsp";
+  if (usaLpsp) v += Math.max(0, res.lpsp - crit.lpspMax) * 100;
+  if (usaLole) {
+    v += Math.max(0, res.lole - crit.h);
     if (crit.usarEnergia) v += Math.max(0, res.ens - crit.h * caso.mediaD) / Math.max(caso.mediaD, 1e-9);
   }
   return v + excesoTerreno(caso, cfg);

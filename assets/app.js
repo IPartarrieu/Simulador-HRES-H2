@@ -1,10 +1,10 @@
 // Página del Simulador HRES-H2: arma el caso con lo que elige la persona, reparte las simulaciones entre
 // Web Workers, ejecuta el método de optimización (uno o varios objetivos) y muestra los resultados.
-import { CATALOGO, MODULOS, NOMBRES, ECONOMIA_TESIS, FUENTES, OBJETIVOS_MO, potenciaPV, potenciaWT, factorFrio, radiacionPanel, inclinacionOptima, limitesPorDefecto, flujoCaja, crf, tasaReal } from "./model.js?v=20261016g";
-import { monteCarlo, genetico, shade, pso, gwo, woa, eo, nsga2, mopso, aptitud, PENALIZACION } from "./optimizers.js?v=20261016g";
-import * as dem from "./demand.js?v=20261016g";
-import { svgDiagrama, svgLayout, descargarSVG, descargarPNG, descargar } from "./diagram.js?v=20261016g";
-import * as zona from "./zona.js?v=20261016g";
+import { CATALOGO, MODULOS, NOMBRES, ECONOMIA_TESIS, FUENTES, OBJETIVOS_MO, potenciaPV, potenciaWT, factorFrio, radiacionPanel, inclinacionOptima, limitesPorDefecto, flujoCaja, crf, tasaReal } from "./model.js?v=20261016i";
+import { monteCarlo, genetico, shade, pso, gwo, woa, eo, nsga2, mopso, aptitud, PENALIZACION } from "./optimizers.js?v=20261016i";
+import * as dem from "./demand.js?v=20261016i";
+import { svgDiagrama, svgLayout, descargarSVG, descargarPNG, descargar } from "./diagram.js?v=20261016i";
+import * as zona from "./zona.js?v=20261016i";
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -383,6 +383,9 @@ function fuenteEquipo(eq) {
 }
 
 function renderEquipos() {
+  const libres = MODULOS.filter((k) => moduloActivo(k) && !(estado.recurso === "tesis" && (k === "wt" || k === "pv")));
+  $("#eq-todos").textContent = libres.length && libres.every((k) => estado.optEquipo[k]) ? "Volver a los equipos elegidos a mano" : "Que el optimizador elija todos los equipos";
+  $("#eq-todos").disabled = estado.corriendo || !libres.length;
   const cont = $("#equipos");
   cont.replaceChildren();
   for (const k of MODULOS) {
@@ -441,22 +444,28 @@ function iniciarZona() {
     $("#zona-cerrar").disabled = !dibujando || n < 3; $("#zona-deshacer").disabled = !dibujando || !n;
     if (dibujando) estadoTexto("#zona-estado", n < 3 ? `Marca al menos 3 vértices (${n} por ahora).` : `${n} vértices. Cierra el polígono para calcular la zona.`);
   };
-  mapaZona = zona.crearMapa($("#mapa"), { alCerrar: cerrarZona, alAviso: (t) => estadoTexto("#zona-estado", t, "warn"), alCambiarModo: botones });
+  const alMedir = (m2) => {
+    const km2 = m2 / 1e6, excede = km2 > zona.AREA_MAX_KM2;
+    estadoTexto("#zona-estado", `Si cierras ahora: ${fmt(m2 / 1e4, 1)} ha (${fmt(km2, 2)} km²)${excede ? ` · supera el máximo de ${zona.AREA_MAX_KM2} km²` : ""}.`, excede ? "warn" : "");
+  };
+  mapaZona = zona.crearMapa($("#mapa"), { alCerrar: cerrarZona, alAviso: (t) => estadoTexto("#zona-estado", t, "warn"), alCambiarModo: botones, alMedir });
   $("#zona-dibujar").addEventListener("click", () => mapaZona.dibujar());
   $("#zona-cerrar").addEventListener("click", () => mapaZona.cerrar());
   $("#zona-deshacer").addEventListener("click", () => mapaZona.deshacer());
   $("#zona-borrar").addEventListener("click", () => mapaZona.borrar());
   $("#viv-osm").addEventListener("click", async () => {
     if (!estado.zona) return;
-    estadoTexto("#viv-estado", "Buscando edificios en OpenStreetMap…");
+    estadoTexto("#viv-estado", "Buscando los edificios detectados en imágenes satelitales (Overture Maps)…");
     try {
-      const nuevas = await zona.viviendasOSM(estado.zona.pts);
+      const { edificiosEnCaja } = await import("./edificios.js?v=20261016i");
+      const nuevas = await edificiosEnCaja(zona.cajaConMargen(estado.zona.pts, 1500));
       const clave = (p) => p.map((v) => v.toFixed(5)).join(",");
       const ya = new Set(estado.viviendas.map(clave));
       estado.viviendas.push(...nuevas.filter((p) => !ya.has(clave(p))));
       cambioViviendas();
-      if (!nuevas.length) estadoTexto("#viv-estado", "OpenStreetMap no tiene edificios registrados aquí: agrega las viviendas a mano con la vista satelital.", "warn");
-    } catch (err) { estadoTexto("#viv-estado", `No se pudo consultar OpenStreetMap: ${err.message}`, "err"); }
+      if (!nuevas.length) estadoTexto("#viv-estado", "No hay edificios detectados en esta zona: revisa la vista satelital y agrega las viviendas a mano.", "warn");
+      else estadoTexto("#viv-estado", `${fmt(nuevas.length)} edificios detectados (${fmt(estado.viviendas.length)} viviendas marcadas en total). Revisa en la vista satelital y quita los que no sean viviendas.`, "ok");
+    } catch (err) { estadoTexto("#viv-estado", `No se pudieron leer los edificios de Overture Maps: ${err.message}. Agrega las viviendas a mano.`, "err"); }
   });
   $("#viv-agregar").addEventListener("click", (e) => {
     const activo = e.currentTarget.textContent.startsWith("Terminar");
@@ -471,10 +480,16 @@ function iniciarZona() {
     cambioViviendas();
   });
   pintarViviendas();
+  $("#eq-todos").addEventListener("click", () => {
+    const libres = MODULOS.filter((k) => moduloActivo(k) && !(estado.recurso === "tesis" && (k === "wt" || k === "pv")));
+    const todos = libres.every((k) => estado.optEquipo[k]);
+    libres.forEach((k) => { estado.optEquipo[k] = !todos; });
+    renderEquipos(); cambiosGenerales();
+  });
 }
 
 async function cerrarZona(pts) {
-  $("#zona-kpis").replaceChildren();
+  $("#zona-kpis").replaceChildren(); $("#zona-potencial").replaceChildren();
   estado.zona = null;
   if (!pts) { estadoTexto("#zona-estado", "Aún no hay una zona dibujada."); actualizarZona(); return; }
   const area = zona.areaM2(pts), km2 = area / 1e6;
@@ -487,6 +502,7 @@ async function cerrarZona(pts) {
   const cercana = dem.ESTACIONES.map((e) => ({ ...e, km: zona.distanciaKm(c, [e.lat, e.lon]) })).sort((a, b) => a.km - b.km)[0];
   estado.zona = { pts, area, centro: c, elev: null, cercana };
   $("#viv-osm").disabled = false;
+  potencialZona().catch((err) => console.error(err));
   $("#est-id").value = cercana.id;
   $("#ub-lat").value = c[0].toFixed(3); $("#ub-lon").value = c[1].toFixed(3);
   estadoTexto("#zona-estado", "Consultando la elevación del terreno…");
@@ -508,6 +524,31 @@ function pintarZona() {
     kpi("Elevación media", e ? `${fmt(e.media)} m s.n.m.` : "…", e ? `mín. ${fmt(e.min)} m · máx. ${fmt(e.max)} m (${e.n} puntos)` : "Copernicus DEM"),
     kpi("Centro", `${fmt(-z.centro[0], 3)}° S`, `${fmt(-z.centro[1], 3)}° O`),
     kpi("Serie más cercana", z.cercana.nombre.split(" (")[0], `a ${fmt(z.cercana.km)} km`));
+}
+
+// Cuántas viviendas podría abastecer la zona: energía que generarían paneles en todo el terreno más aerogeneradores
+// intercalados (terreno compartido), con el clima ERA5 del punto prealmacenado más cercano y los equipos elegidos,
+// dividida por el consumo eléctrico medio de una vivienda en Chile (2.074 kWh/año; Ministerio de Energía,
+// Caracterización del consumo energético residencial, 2018). El rango va de un sistema aislado 100 % renovable sin
+// cortes (en el caso de ejemplo de la tesis solo ~8 % de lo generado llega a la demanda: el resto se pierde o se va en
+// el ciclo del hidrógeno) a uno que aprovecha casi toda la energía (90 %, con respaldo o conexión a la red).
+const KWH_VIVIENDA = 2074, APROVECHAMIENTO = [0.08, 0.9];
+async function potencialZona() {
+  const z = estado.zona;
+  if (!z) return;
+  const c = (await dem.climaEstacion(z.cercana.id)).clima;
+  if (estado.zona !== z) return;
+  const pv = estado.equipos.pv, wt = wtModelo(), suma = (x) => x.reduce((a, b) => a + b, 0);
+  const pa = zona.distribucionPaneles(z.centro[0], { areaPanelM2: pv.pr / (pv.eff / 100), aprovechamiento: Math.min(1, Math.max(0.1, num("#lay-aprov") / 100)) });
+  const nPv = Math.floor(z.area / pa.m2PorPanel), ePv = nPv * suma(potenciaPV(pv, c.gti_wm2, c.temp_c)) * (1 - pa.sombra);
+  const lay = zona.distribuirAerogeneradores(z.pts, { D: wt.rotor, eje: c.eje_viento ?? 0, retiro: wt.hub + wt.rotor / 2 });
+  const nWt = lay.demasiadas ? Math.floor(z.area / lay.celdaM2) : lay.posiciones.length;
+  const eWt = nWt * suma(potenciaWT(wt, c.v10_ms, c.v100_ms, c.temp_c, c.presion_hpa));
+  const gen = ePv + eWt, [a, b] = APROVECHAMIENTO.map((f) => (gen * f) / KWH_VIVIENDA);
+  const redondo = (v) => { const p = 10 ** Math.max(0, Math.floor(Math.log10(Math.max(v, 1))) - 1); return Math.round(v / p) * p; };
+  $("#zona-potencial").replaceChildren(kpi("Viviendas que podría abastecer", `${fmt(redondo(a))} a ${fmt(redondo(b))}`,
+    `potencial de ${fmt(gen / 1e6, 1)} GWh/año: ${fmt((nPv * pv.pr) / 1000, 1)} MW de paneles ${pv.nombre.split(" ·")[0]} en todo el terreno y ${fmt(nWt)} aerogeneradores ${wt.nombre.split(" ·")[0]} intercalados, con el clima de ${z.cercana.nombre.split(" (")[0]}. ` +
+    `Desde un sistema aislado 100 % renovable sin cortes (≈8 % de lo generado llega a la demanda, como en el caso de ejemplo) hasta uno que aprovecha ≈90 %. Vivienda media: 2.074 kWh/año (Ministerio de Energía, 2018).`));
 }
 
 function actualizarZona() {
@@ -617,9 +658,10 @@ function leerH2() {
 }
 function objetivosMO() { return $$("#obj-mo input:checked").map((i) => i.value); }
 function leerCriterio() {
-  const tipo = $("#conf-tipo").value, modo = radio("modo");
+  const usarLole = $("#conf-usa-lole").checked, usarLpsp = $("#conf-usa-lpsp").checked, modo = radio("modo");
   return {
-    tipo, modo, h: Math.max(0, Math.round(num("#conf-h"))), usarEnergia: tipo === "lole" && $("#conf-energia").checked,
+    tipo: usarLole ? "lole" : "lpsp", usarLole, usarLpsp, umbral: Math.max(0, num("#conf-umbral")),
+    modo, h: Math.max(0, Math.round(num("#conf-h"))), usarEnergia: usarLole && $("#conf-energia").checked,
     lpspMax: Math.min(1, Math.max(0, num("#conf-lpsp") / 100)),
     objetivo: modo === "uno" ? $("#obj-unico").value : "lcoe",
     pen: { excedentes: Math.max(0, num("#pen-exc")), h2: Math.max(0, num("#pen-h2")) },
@@ -627,7 +669,12 @@ function leerCriterio() {
   };
 }
 const hayPenalizacion = (c) => c.pen.excedentes > 0 || c.pen.h2 > 0;
-function textoConfiabilidad(c) { return c.tipo === "lpsp" ? `LPSP ≤ ${fmt(c.lpspMax * 100, 2)} %` : `LOLE ≤ ${fmt(c.h)} h${c.usarEnergia ? " y energía no suministrada ≤ h × demanda media" : ""}`; }
+function textoConfiabilidad(c) {
+  const p = [];
+  if (c.usarLole) p.push(`LOLE ≤ ${fmt(c.h)} h (horas con déficit > ${fmt(c.umbral, 2)} kWh)${c.usarEnergia ? " y energía no suministrada ≤ h × demanda media" : ""}`);
+  if (c.usarLpsp) p.push(`LPSP ≤ ${fmt(c.lpspMax * 100, 2)} %`);
+  return p.join(" y ") || "sin restricción de confiabilidad";
+}
 function nombreObjetivo(c) {
   const base = { lcoe: "LCOE", npc: "costo presente neto", capex: "inversión inicial" }[c.objetivo];
   return hayPenalizacion(c) ? `${base} con penalizaciones` : base;
@@ -636,7 +683,7 @@ function valorObjetivo(c, v) { return c.objetivo === "lcoe" ? `${fmt(v, 4)} USD/
 
 function renderCriterios() {
   const c = leerCriterio();
-  $$("[data-conf]").forEach((el) => { el.hidden = el.dataset.conf !== c.tipo; });
+  $$("[data-conf]").forEach((el) => { el.hidden = el.dataset.conf === "lole" ? !c.usarLole : !c.usarLpsp; });
   $$("[data-modo]").forEach((el) => { el.hidden = el.dataset.modo !== c.modo; });
   const sel = $("#metodo"), previo = sel.value;
   if (sel.dataset.modo !== c.modo) {
@@ -765,7 +812,7 @@ function cambiosGenerales() {
   const c = leerCriterio();
   const moValido = c.modo !== "mo" || (c.mo.length >= 2 && c.mo.length <= 4);
   const listo = !estado.corriendo && valida && !!estado.demanda && recursoListo();
-  $("#btn-optimizar").disabled = !listo || !moValido;
+  $("#btn-optimizar").disabled = !listo || !moValido || !(c.usarLole || c.usarLpsp);   // al menos una restricción de confiabilidad
   $("#btn-manual").disabled = !listo;
 }
 
@@ -775,7 +822,7 @@ class Pool {
   constructor(n) {
     this.pend = new Map(); this.id = 0;
     this.workers = Array.from({ length: n }, () => {
-      const w = new Worker(new URL("./worker.js?v=20261016g", import.meta.url), { type: "module" });
+      const w = new Worker(new URL("./worker.js?v=20261016i", import.meta.url), { type: "module" });
       w.onmessage = (e) => {
         const p = this.pend.get(e.data.id);
         if (!p) return;
@@ -849,7 +896,7 @@ async function armarCaso() {
   const cand = optimizaEquipos() ? await armarCandidatos(d) : null;
   estado.candSnap = cand && cand.snap;
   return { demanda: Array.from(estado.demanda), wtKw: Array.from(s.wt), pvKw: Array.from(s.pv), equipos: equiposModelo(), economia: leerEconomia(),
-    perdidas: leerPerdidas(), h2: leerH2(), terreno: t && { area: t.area, aWt: t.aWt, aPv: t.aPv, nWtMax: t.nWt },
+    perdidas: leerPerdidas(), h2: leerH2(), umbralLole: leerCriterio().umbral, terreno: t && { area: t.area, aWt: t.aWt, aPv: t.aPv, nWtMax: t.nWt },
     estela: est && { eta: est.eta, sec: est.sec, S: est.S, nMax: est.nMax }, campoFV, candidatos: cand && cand.modelos };
 }
 
@@ -1119,14 +1166,14 @@ function mostrarResultados(cfg, r, meta, desplazarA = "#resultados") {
     meta.detenido ? "detenido antes de terminar" : "", nombreArquitectura(arq), estado.demandaNombre,
     r.anosClima > 1 ? `${r.anosClima} años de clima: energía y costos en promedio anual; confiabilidad y gráficos del peor año (el ${r.anioPeor + 1}.º; promedio ${fmt(r.loleMedia, 1)} h/año con déficit)` : ""].filter(Boolean).join(" · ");
 
-  const lole = crit.tipo === "lole", pen = hayPenalizacion(crit);
+  const usaLole = crit.usarLole ?? crit.tipo !== "lpsp", usaLpsp = crit.usarLpsp ?? crit.tipo === "lpsp", pen = hayPenalizacion(crit);
   const insignia = cumple ? ["Cumple", "ok"] : ["No cumple", "err"];
   const tarjetas = [
     kpi("LCOE", `${fmt(r.lcoe, 4)} USD/kWh`, "Costo nivelado de energía", "main"),
     kpi("Costo presente neto", musd(r.npc), `en ${economia.anios} años`),
     kpi("Inversión inicial", musd(r.capex)),
-    kpi("Horas con déficit (LOLE)", `${fmt(r.lole)} h`, lole ? `permitidas: ${fmt(crit.h)} h` : "", "", lole ? insignia : null),
-    kpi("LPSP", `${fmt(r.lpsp * 100, 3)} %`, lole ? "energía no suministrada / demanda" : `máxima: ${fmt(crit.lpspMax * 100, 2)} %`, "", lole ? null : insignia),
+    kpi("Horas con déficit (LOLE)", `${fmt(r.lole)} h`, usaLole ? `permitidas: ${fmt(crit.h)} h` : `horas con déficit > ${fmt(crit.umbral ?? 0.01, 2)} kWh`, "", usaLole ? [r.lole <= crit.h ? "Cumple" : "No cumple", r.lole <= crit.h ? "ok" : "err"] : null),
+    kpi("LPSP", `${fmt(r.lpsp * 100, 3)} %`, usaLpsp ? `máxima: ${fmt(crit.lpspMax * 100, 2)} %` : "energía no suministrada / demanda", "", usaLpsp ? [r.lpsp <= crit.lpspMax + 1e-12 ? "Cumple" : "No cumple", r.lpsp <= crit.lpspMax + 1e-12 ? "ok" : "err"] : null),
     kpi("Energía no suministrada", `${fmt(r.ens, 1)} kWh`, "al año"),
     kpi("Energía suministrada", `${fmt(r.eSum / 1000, 1)} MWh/año`, "incluye la reserva operativa"),
     kpi("Excedentes perdidos", `${fmt(r.perdida / 1000, 1)} MWh/año`, "energía que no se pudo aprovechar ni guardar"),
@@ -1307,7 +1354,7 @@ async function mostrar3D(op) {
   const ley = $("#leyenda-3d"); ley.replaceChildren();
   const chip = (color, texto) => { const s = document.createElement("span"), i = document.createElement("i"); i.style.background = color; s.append(i, texto); ley.appendChild(s); };
   try {
-    const m = await import("./escena3d.js?v=20261016g");
+    const m = await import("./escena3d.js?v=20261016i");
     chip("#FF8A3D", "Zona");
     if (op.cfg[0]) chip("#F7F8FA", `Aerogeneradores (${fmt(op.cfg[0])})`);
     if (op.cfg[1]) chip("#2456A6", `Paneles (${fmt(op.cfg[1])})`);
@@ -1370,7 +1417,7 @@ function descargarJSON() {
   const salida = {
     simulador: "Simulador HRES-H2", fecha: new Date().toISOString(),
     demanda: res.demandaNombre, recurso: res.recurso, arquitectura: res.arq, equipos: res.equipos, economia: res.economia,
-    criterio: { confiabilidad: c.tipo, lole_max_h: c.tipo === "lole" ? c.h : null, limitar_energia: c.usarEnergia, lpsp_max: c.tipo === "lpsp" ? c.lpspMax : null,
+    criterio: { lole_max_h: c.usarLole ? c.h : null, umbral_deficit_kwh: c.usarLole ? c.umbral : null, limitar_energia: c.usarEnergia, lpsp_max: c.usarLpsp ? c.lpspMax : null,
       modo: c.modo, objetivo: c.modo === "mo" ? c.mo : c.objetivo, penalizaciones_usd_kwh: c.pen },
     metodo: res.meta.metodo, parametros: res.meta.params || null, semilla: res.meta.semilla || null,
     resultado: { cantidades: Object.fromEntries(MODULOS.map((m, i) => [m, res.cfg[i]])), lcoe_usd_kwh: r.lcoe, npc_usd: r.npc, inversion_usd: r.capex,
@@ -1396,7 +1443,7 @@ async function cargarCasoTesis() {
   $("#per-disp-wt").value = $("#per-disp-pv").value = 100; $("#per-degr").value = 0;    // la tesis no las considera
   ["#h2-ele-min", "#h2-ele-aux", "#h2-comp", "#h2-fc-min", "#h2-fc-aux"].forEach((s) => { $(s).value = 0; });
   $("#wt-curva").value = "lineal"; $("#wt-tmin").value = -60; $("#wt-hielo").checked = false; $("#pv-montaje").value = "fija-lat";
-  $("#conf-tipo").value = "lole"; $("#conf-h").value = 0; $("#conf-energia").checked = false;
+  $("#conf-usa-lole").checked = true; $("#conf-usa-lpsp").checked = false; $("#conf-h").value = 0; $("#conf-umbral").value = 0.01; $("#conf-energia").checked = false;
   $('input[name="modo"][value="uno"]').checked = true; $("#obj-unico").value = "lcoe";
   $("#pen-exc").value = 0; $("#pen-h2").value = 0;
   $("#lay-usar").checked = false;          // el caso de ejemplo está en lat. 45°S, fuera de la región del mapa
@@ -1438,7 +1485,7 @@ function iniciar() {
   $$('input[name="recurso"]').forEach((r) => r.addEventListener("change", cambiarRecurso));
   $("#ub-cargar").addEventListener("click", cargarUbicacion);
   ["#arq-wt", "#arq-pv", "#arq-hess", "#arq-bat", "#arq-dg"].forEach((s) => $(s).addEventListener("change", () => { cambiosGenerales(); renderEquipos(); }));
-  ["#eco-dn", "#eco-ie", "#eco-anios", "#eco-reserva", "#eco-diesel", "#per-disp-wt", "#per-disp-pv", "#per-degr", "#h2-ele-min", "#h2-ele-aux", "#h2-comp", "#h2-fc-min", "#h2-fc-aux", "#conf-tipo", "#conf-h", "#conf-lpsp", "#conf-energia", "#obj-unico", "#pen-exc", "#pen-h2"]
+  ["#eco-dn", "#eco-ie", "#eco-anios", "#eco-reserva", "#eco-diesel", "#per-disp-wt", "#per-disp-pv", "#per-degr", "#h2-ele-min", "#h2-ele-aux", "#h2-comp", "#h2-fc-min", "#h2-fc-aux", "#conf-usa-lole", "#conf-usa-lpsp", "#conf-umbral", "#conf-h", "#conf-lpsp", "#conf-energia", "#obj-unico", "#pen-exc", "#pen-h2"]
     .forEach((s) => $(s).addEventListener("change", cambiosGenerales));
   $$('input[name="modo"]').forEach((r) => r.addEventListener("change", cambiosGenerales));
   $("#limites-auto").addEventListener("click", () => { estado.limitesEditados = false; renderLimites(); });
