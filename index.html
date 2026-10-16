@@ -3,16 +3,16 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://tile.openstreetmap.org https://a.tile.opentopomap.org https://b.tile.opentopomap.org https://c.tile.opentopomap.org https://server.arcgisonline.com https://s3.amazonaws.com; connect-src 'self' https://archive-api.open-meteo.com https://api.open-meteo.com; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://tile.openstreetmap.org https://a.tile.opentopomap.org https://b.tile.opentopomap.org https://c.tile.opentopomap.org https://server.arcgisonline.com https://s3.amazonaws.com; connect-src https://overpass-api.de https://overpass.kumi.systems https://overpass.private.coffee 'self' https://archive-api.open-meteo.com https://api.open-meteo.com; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 <title>Simulador HRES-H2 · dimensionamiento de sistemas híbridos con hidrógeno</title>
 <meta name="description" content="Simulador y optimizador del dimensionamiento de un sistema híbrido de energías renovables (eólica y solar) con almacenamiento de energía en forma de hidrógeno, para zonas del centro-sur de Chile.">
 <link rel="icon" href="assets/icono.svg" type="image/svg+xml">
 <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
-<link rel="stylesheet" href="assets/style.css?v=20261016f">
+<link rel="stylesheet" href="assets/style.css?v=20261016g">
 <script src="vendor/chart.umd.min.js" defer></script>
 <script src="vendor/leaflet/leaflet.js" defer></script>
-<script type="module" src="assets/app.js?v=20261016f"></script>
+<script type="module" src="assets/app.js?v=20261016g"></script>
 </head>
 <body>
 <header class="top">
@@ -58,6 +58,14 @@
         </div>
         <p class="fine">Haz clic en el mapa para marcar cada vértice. Termina con un clic en el primer punto, con doble clic o con «Cerrar polígono». Puedes cambiar a relieve, calles o satélite con el botón de capas.</p>
         <p class="status" id="zona-estado">Aún no hay una zona dibujada.</p>
+        <h3 class="sub">Viviendas cercanas</h3>
+        <div class="btns sin-margen">
+          <button class="btn btn-small" type="button" id="viv-osm" disabled>Buscar en OpenStreetMap</button>
+          <button class="btn btn-small" type="button" id="viv-agregar">Agregar con clic</button>
+          <button class="btn btn-small" type="button" id="viv-borrar">Borrar viviendas</button>
+        </div>
+        <p class="fine">Las viviendas limitan dónde pueden ir los aerogeneradores (ver «Restricciones ambientales» en la pestaña Equipos). Se buscan hasta 1,5 km alrededor de la zona; revisa el mapa satelital y agrega las que falten. Un clic sobre una vivienda la quita. En rojo, la distancia mínima; en naranjo punteado, donde un solo aerogenerador llega al límite de ruido.</p>
+        <p class="status" id="viv-estado"></p>
         <div class="kpis compactos" id="zona-kpis"></div>
         <p class="fine">La zona define cuánto terreno hay para el sistema. En la pestaña <b>Equipos</b> se calcula cuántos aerogeneradores y paneles caben y cómo se distribuyen, una vez conocidos el viento y los equipos elegidos.</p>
       </div>
@@ -201,6 +209,15 @@
           <label>Retiro desde el borde (alturas de punta) <input type="number" id="lay-retiro" min="0" max="3" step="0.1" value="1"></label>
         </div>
         <p class="fine" id="lay-eje-nota"></p>
+        <h3 class="sub">Restricciones ambientales (Chile)</h3>
+        <div class="form-grid tight">
+          <label>Distancia mínima a viviendas (m) <input type="number" id="nr-dist" min="0" max="5000" step="50" value="300"></label>
+          <label class="check"><input type="checkbox" id="nr-ruido" checked> Ruido nocturno, D.S. 38/2011 (zona rural)</label>
+          <label>Ruido de fondo nocturno (dB(A)) <input type="number" id="nr-fondo" min="20" max="60" step="1" value="30"></label>
+          <label>Potencia acústica del aerogenerador (dB(A)) <input type="number" id="nr-lw" min="60" max="120" step="0.5"></label>
+          <label class="check"><input type="checkbox" id="nr-sombra" checked> Sombra intermitente: máx. 30 h/año y 30 min/día (SEA, 2021)</label>
+        </div>
+        <p class="fine" id="nr-nota"></p>
         <h3 class="sub">Paneles</h3>
         <div class="form-grid tight">
           <label>Montaje <select id="pv-montaje"><option value="fija-lat">Fijo, inclinado en la latitud</option><option value="fija-opt">Fijo, con la inclinación óptima</option><option value="seguidor">Seguidor de un eje norte-sur</option></select></label>
@@ -596,6 +613,15 @@
 
     <div class="bib-grupo">
       <h3 class="sub">Zona y terreno</h3>
+      <details class="termino"><summary>Restricciones ambientales (Chile)</summary>
+        <p>Las viviendas cercanas (buscadas en OpenStreetMap o marcadas a mano) limitan dónde pueden ir los aerogeneradores. Al elegir las posiciones, cada aerogenerador nuevo solo se acepta si con él todas las viviendas siguen cumpliendo:</p>
+        <p><b>Ruido, D.S. 38/2011 del MMA.</b> En zona rural, el nivel máximo en la vivienda es el menor entre el ruido de fondo + 10 dB(A) y el límite de la Zona III (50 dB(A) de noche). Se usa el periodo nocturno, el más exigente. El ruido de cada aerogenerador se estima con una versión simplificada de ISO 9613-2 (divergencia esférica y absorción del aire) y se suman todos:</p>
+        <p class="ecuacion">L<sub>p</sub> = L<sub>w</sub> − 20 log r − 11 − 0,005 r &nbsp;&nbsp; L<sub>total</sub> = 10 log Σ 10<sup>L<sub>p,i</sub>/10</sup> ≤ mín(L<sub>fondo</sub> + 10 ; 50)</p>
+        <p>L<sub>w</sub> es la potencia acústica: 89,5 dB(A) para el Bergey Excel 10 (42,9 dB(A) a 60 m en su certificación SWCC) y 95 dB(A) para el NPS 100C-24 (50 dB(A) a 50 m en su ficha); para los demás es un valor referencial por tamaño que conviene reemplazar por el del fabricante.</p>
+        <p><b>Sombra intermitente, criterio del SEA (2021).</b> En el escenario astronómico más desfavorable (sol despejado de sol a sol, rotor de frente al sol y girando), cada vivienda a 2 m de altura puede recibir como máximo 30 horas al año y 30 minutos al día. Se calcula con el sol cada 2 minutos, sobre 3° de altura, hasta 10 diámetros del aerogenerador.</p>
+        <p><b>Distancia mínima.</b> Ninguna ley chilena vigente la fija: los 300 m son un criterio de diseño editable. Un proyecto de ley presentado en septiembre de 2026 propone 5000 m para parques de 3 MW o más.</p>
+        <p class="en-sim">Son verificaciones de anteproyecto: un parque sobre 3 MW entra al SEIA, donde se exige medir el ruido de fondo y modelar ruido y sombra con más detalle (relieve, suelo, orientación de las ventanas).</p>
+      </details>
       <details class="termino"><summary>Superficie y elevación de la zona</summary>
         <p>La superficie del polígono se calcula sobre la esfera terrestre. La elevación media, mínima y máxima sale del modelo Copernicus DEM (90 m) en hasta 100 puntos. La vista 3D usa las Terrain Tiles de AWS.</p>
       </details>

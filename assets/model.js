@@ -38,6 +38,7 @@ export const CATALOGO = {
       ci: 4000, rep: 4000, om: 80, vu: 24, fuente: "energies2022" },
     { id: "bergey10", nombre: "Bergey Excel 10 · 10 kW", pr: 10, vcin: 3.4, vr: 11, vcout: 20, hub: 24, rotor: 7,
       ci: 65000, rep: 50000, om: 1300, vu: 20, fuente: "ficha",
+      lw: 89.5,   // potencia acústica, dB(A): nivel certificado de 42,9 dB(A) a 60 m (AWEA 9.1, informe SWCC-10-12)
       // Curva certificada a 1,225 kg/m³ (W → kW; la potencia negativa de consumo propio bajo 2 m/s se toma como 0).
       curvaReal: { fuente: "swcc2022", v: [2, 2.5, 3, 3.5, 4, 4.5, 5, 5.5, 6, 6.5, 7, 7.5, 8, 8.5, 9, 9.5, 10, 10.5, 11, 11.5, 12, 12.5, 13, 13.5, 14, 14.5, 15, 15.5, 16, 16.5, 17, 17.5, 18, 18.5, 19, 19.5, 20, 20.5],
         p: [0, 0.039, 0.102, 0.229, 0.399, 0.596, 0.848, 1.151, 1.51, 1.938, 2.403, 2.949, 3.602, 4.306, 5.071, 5.96, 6.856, 7.849, 8.863, 9.928, 10.885, 11.619, 12.019, 12.276, 12.395, 12.449, 12.495, 12.508, 12.546, 12.555, 12.503, 12.528, 12.442, 12.396, 12.208, 11.878, 11.989, 11.495] } },
@@ -45,6 +46,7 @@ export const CATALOGO = {
       ci: 150000, rep: 120000, om: 3000, vu: 20, fuente: "ficha" },
     { id: "nps100", nombre: "Northern Power NPS 100C-24 · 95 kW", pr: 95, vcin: 3, vr: 12, vcout: 25, hub: 37, rotor: 24.4,
       ci: 450000, rep: 380000, om: 9000, vu: 20, fuente: "ficha",
+      lw: 95,     // potencia acústica, dB(A): 50 dB(A) a 50 m de la góndola (ficha 2020)
       // Curva del fabricante a 1,225 kg/m³, de 1 a 25 m/s (la potencia negativa bajo 3 m/s se toma como 0).
       curvaReal: { fuente: "nps2020", v: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25], p: [0, 0, 1.2, 7.2, 14.5, 24.7, 37.9, 58.7, 74.8, 85.1, 90.2, 94.7, 95.3, 95.1, 94.2, 92.9, 91.2, 88.9, 87.1, 84.1, 81.3, 78.6, 76.1, 74.3, 71.7] } },
     // Gran escala (3 MW); el rotor de 150 m sale del nombre del modelo (GW 150).

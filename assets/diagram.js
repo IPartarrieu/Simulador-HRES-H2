@@ -144,6 +144,11 @@ export function svgLayout(geo, { titulo, eje, pitchM, leyenda }) {
   s.push(`<marker id="punta" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#3E7BD6"/></marker></defs>`);
   s.push(`<rect width="${W}" height="${f(H)}" fill="#FFFFFF"/><text x="${m}" y="30" font-size="17" font-weight="700" fill="#1E2530">${esc(titulo)}</text>`);
   s.push(`<polygon points="${geo.poli.map(([x, y]) => `${f(px(x))},${f(py(y))}`).join(" ")}" fill="#F3F1EC" stroke="#C2410C" stroke-width="2"/>`);
+  if (geo.casas?.length) {               // viviendas y su distancia mínima, recortadas al área del dibujo
+    s.push(`<clipPath id="area"><rect x="${m}" y="${top}" width="${f((x1 - x0) * k)}" height="${f(hDib)}"/></clipPath><g clip-path="url(#area)">`);
+    for (const [x, y] of geo.casas) s.push(`<circle cx="${f(px(x))}" cy="${f(py(y))}" r="${f(geo.radioCasa * k)}" fill="#E53935" fill-opacity="0.16" stroke="#C62828" stroke-width="0.8"/><rect x="${f(px(x) - 3)}" y="${f(py(y) - 3)}" width="6" height="6" fill="#B71C1C"/>`);
+    s.push("</g>");
+  }
   for (const [x, y] of geo.pv) s.push(`<rect x="${f(px(x) - lado / 2)}" y="${f(py(y) - lado / 2)}" width="${f(lado)}" height="${f(lado)}" fill="url(#filas)"/>`);
   for (const [x, y] of geo.turb) s.push(`<circle cx="${f(px(x))}" cy="${f(py(y))}" r="${f(r)}" fill="#2A9D8F" stroke="#FFFFFF" stroke-width="1.2"/>`);
   const [bx, by] = geo.bloque;
@@ -161,6 +166,7 @@ export function svgLayout(geo, { titulo, eje, pitchM, leyenda }) {
       pv: `<rect x="${m}" y="${y - 11}" width="16" height="14" fill="url(#filas)" stroke="#E9A23B"/>`,
       bloque: `<rect x="${m + 1}" y="${y - 11}" width="14" height="14" fill="#1E2530"/>`,
       zona: `<rect x="${m}" y="${y - 11}" width="16" height="14" fill="#F3F1EC" stroke="#C2410C" stroke-width="2"/>`,
+      casa: `<circle cx="${m + 8}" cy="${y - 4}" r="7" fill="#E53935" fill-opacity="0.25" stroke="#C62828"/><rect x="${m + 5}" y="${y - 7}" width="6" height="6" fill="#B71C1C"/>`,
     }[tipo];
     s.push(`${sim}<text x="${m + 26}" y="${y}" font-size="13" fill="#1E2530">${ls.map((l, i) => `<tspan x="${m + 26}" dy="${i ? 18 : 0}">${esc(l)}</tspan>`).join("")}</text>`);
     y += ls.length * 18 + 6;

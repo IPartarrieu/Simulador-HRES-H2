@@ -4,7 +4,7 @@
 // (recurso eólico o solar, calculado en zona.js con la grilla `rejilla`). Usa three.js (vendor/three).
 import * as THREE from "../vendor/three/three.module.min.js";
 import { OrbitControls } from "../vendor/three/OrbitControls.js";
-import { relieve, mosaico, nivelTesela as nivel, N_RELIEVE as N } from "./zona.js?v=20261016f";
+import { relieve, mosaico, nivelTesela as nivel, N_RELIEVE as N } from "./zona.js?v=20261016g";
 
 const cacheTerreno = new Map();
 const lim = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -181,6 +181,21 @@ export async function crearVista3D(contenedor, op) {
   });
   const cerco = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(borde), new THREE.LineBasicMaterial({ color: "#FF8A3D" }));
   escena.add(cerco);
+
+  // Viviendas cercanas: una casa (dibujada ×kEq) y el anillo rojo de la distancia mínima, siguiendo el relieve.
+  const casas = new THREE.Group(); escena.add(casas);
+  const muro = mat("#F2E6D0"), techo = mat("#B5462F");
+  for (const [x, y] of op.casas || []) {
+    if (x < t.x0 || x > t.x1 || y < t.y0 || y > t.y1) continue;
+    const c = new THREE.Group();
+    const cuerpo = new THREE.Mesh(new THREE.BoxGeometry(8, 4, 6), muro); cuerpo.position.y = 2;
+    const tj = new THREE.Mesh(new THREE.ConeGeometry(6, 3, 4), techo); tj.position.y = 5.5; tj.rotation.y = Math.PI / 4;
+    c.add(cuerpo, tj); c.scale.setScalar(kEq); c.position.copy(v3(x, y)); c.traverse((o) => { o.castShadow = true; }); casas.add(c);
+    if (op.radioCasa > 0) {
+      const anillo = Array.from({ length: 72 }, (_, k) => { const a = (2 * Math.PI * k) / 72; return v3(x + op.radioCasa * Math.cos(a), y + op.radioCasa * Math.sin(a), 1.5); });
+      casas.add(new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(anillo), new THREE.LineBasicMaterial({ color: "#E53935" })));
+    }
+  }
 
   // Paneles: filas inclinadas en β mirando al norte, partidas en mesas de hasta 10 m (InstancedMesh). Cada mesa sigue
   // la pendiente este-oeste del terreno en su centro (como las mesas reales, que se adaptan al terreno a lo largo de la

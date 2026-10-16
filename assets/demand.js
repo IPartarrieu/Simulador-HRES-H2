@@ -1,6 +1,6 @@
 // Series de entrada: demanda horaria (8760 h) y recurso meteorológico.
-import { rng } from "./optimizers.js?v=20261016f";
-import { decodificarSerie } from "./codec.js?v=20261016f";
+import { rng } from "./optimizers.js?v=20261016g";
+import { decodificarSerie } from "./codec.js?v=20261016g";
 
 export const HORAS = 8760;
 

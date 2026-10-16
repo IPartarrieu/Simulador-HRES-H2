@@ -5,7 +5,7 @@
 import { readFileSync } from "node:fs";
 import { decodificarSerie } from "../assets/codec.js";
 import { CATALOGO, ECONOMIA_TESIS, prepararCaso, simular, crf, tasaReal, npcUnidad, potenciaWT, radiacionPanel } from "../assets/model.js";
-import { factoresRelieve, ctEfectivo, estelaParque, eficienciaParque, distribucionPaneles, sombraFilas, proyeccion, interaccionPV, distribuirAerogeneradores, factorCeldasFV } from "../assets/zona.js";
+import { ruidoEn, verificarViviendas, factoresRelieve, ctEfectivo, estelaParque, eficienciaParque, distribucionPaneles, sombraFilas, proyeccion, interaccionPV, distribuirAerogeneradores, factorCeldasFV } from "../assets/zona.js";
 
 const datos = JSON.parse(readFileSync(new URL("../data/ejemplo_45s_2018.json", import.meta.url)));
 datos.demanda_kw = decodificarSerie(datos.demanda_codificada);
@@ -147,6 +147,19 @@ otros.push(
   ["equipo variable: índices en 0 = caso base", simular(conCand, c16).lcoe, simular(caso, cfgH).lcoe, 0],
   ["equipo variable: índices 1 = caso con esos equipos", simular(conCand, c16b).lcoe, simular(directo, cfgH).lcoe, 0],
   ["equipo variable: misma confiabilidad", simular(conCand, c16b).lole, simular(directo, cfgH).lole, 0],
+);
+// Restricciones ambientales: con una vivienda en el centro de la zona, ningún aerogenerador queda a menos de 300 m,
+// el ruido en la vivienda no pasa de 40 dB(A) y la sombra intermitente no pasa de 30 h/año ni 30 min/día.
+const zonaR = [[-37.01, -72.012], [-37.01, -71.988], [-36.99, -71.988], [-36.99, -72.012]], casaR = [[-37, -72]];
+const normasR = { distMin: 300, ruido: { limite: 40 }, sombra: true }, wtR = CATALOGO.wt.find((x) => x.id === "nps100");
+const layR = distribuirAerogeneradores(zonaR, { D: wtR.rotor, eje: 0 });
+const eR = estelaParque(zonaR, layR.posiciones, { D: wtR.rotor, wt: wtR, clima, eje: 0, viviendas: casaR, normas: normasR });
+const prR = proyeccion([-37, -72]), vR = verificarViviendas(zonaR, casaR, eR.orden.map(prR.a), wtR, normasR);
+otros.push(
+  ["ruido NPS 100C a 50 m ≈ 50 dB(A) de su ficha", ruidoEn(95, 50), 50, 0.01],
+  ["viviendas: hay aerogeneradores y todos a ≥ 300 m", +(eR.nPermitidos > 0 && vR.dist >= 300), 1, 0],
+  ["viviendas: ruido en la casa ≤ 40 dB(A)", +(vR.ruido <= 40 + 1e-9), 1, 0],
+  ["viviendas: sombra ≤ 30 h/año y ≤ 30 min/día", +(vR.anual <= 30 && vR.dia <= 30), 1, 0],
 );
 for (const [nombre, a, e, tol] of otros) {
   const ok = cerca(a, e, tol); fallas += ok ? 0 : 1;

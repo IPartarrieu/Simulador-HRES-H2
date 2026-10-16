@@ -5,7 +5,7 @@
 // ponytail: rectángulo que cubre las cuatro regiones, no su límite exacto; usar un GeoJSON regional si hace falta precisión.
 export const REGION = { latMin: -39.7, latMax: -34.6, lonMin: -74.0, lonMax: -70.3 };
 export const AREA_MAX_KM2 = 25;          // límite para que la zona sea un terreno, no una comuna entera
-import { potenciaWT, vientoBuje } from "./model.js?v=20261016f";
+import { potenciaWT, vientoBuje } from "./model.js?v=20261016g";
 
 const R = 6378137;
 const rad = (g) => (g * Math.PI) / 180, grados = (r) => (r * 180) / Math.PI;
@@ -377,6 +377,128 @@ export function interaccionPV(pts, posiciones, op, rel) {
   return { tabla, K, nMax, m2Celda: z.lado * z.lado };
 }
 
+/* ---------- Restricciones ambientales (Chile) ---------- */
+
+// Viviendas de OpenStreetMap (edificios residenciales o sin tipo) en la zona y un margen, como [lat, lon].
+// ponytail: en zonas rurales OSM puede estar incompleto; la página permite agregar y quitar viviendas a mano.
+const SERVIDORES_OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter", "https://overpass.private.coffee/api/interpreter"];
+const TIPOS_VIVIENDA = /^(yes|house|residential|detached|farm|hut|cabin|bungalow|apartments|semidetached_house|terrace|dormitory|static_caravan)$/;
+export async function viviendasOSM(pts, margenM = 1500) {
+  const lat = pts.map((p) => p[0]), lon = pts.map((p) => p[1]), c = centro(pts);
+  const dLat = margenM / 110540, dLon = margenM / (111320 * Math.cos(rad(c[0])));
+  const caja = [Math.min(...lat) - dLat, Math.min(...lon) - dLon, Math.max(...lat) + dLat, Math.max(...lon) + dLon].map((v) => v.toFixed(5)).join(",");
+  const q = `[out:json][timeout:25];(way["building"](${caja});node["building"](${caja}););out center 3000;`;
+  // Los servidores públicos de Overpass a veces rechazan o fallan: se prueban varios, en orden.
+  let d = null, ultimo = "";
+  for (const url of SERVIDORES_OVERPASS) {
+    try {
+      const resp = await fetch(`${url}?data=${encodeURIComponent(q)}`);
+      if (resp.ok) { d = await resp.json(); break; }
+      ultimo = `${new URL(url).host} respondió ${resp.status}`;
+    } catch (err) { ultimo = `${new URL(url).host}: ${err.message}`; }
+  }
+  if (!d) throw new Error(ultimo || "sin respuesta");
+  return d.elements.filter((e) => TIPOS_VIVIENDA.test(e.tags?.building || "")).map((e) => (e.center ? [e.center.lat, e.center.lon] : [e.lat, e.lon]));
+}
+
+// Ruido de un aerogenerador en un receptor, ISO 9613-2 simplificada: divergencia esférica y absorción del aire
+// (α = 0,005 dB/m, banda de 500 Hz), sin efecto del suelo ni de barreras: Lp = Lw − 20·log r − 11 − α·r.
+export const ruidoEn = (lw, r) => lw - 20 * Math.log10(Math.max(r, 1)) - 11 - 0.005 * r;
+// Distancia a la que un aerogenerador solo llega al límite (para dibujar el anillo de referencia).
+export function distanciaRuido(lw, limite) {
+  let a = 1, b = 20000;
+  for (let k = 0; k < 50; k++) { const m = (a + b) / 2; if (ruidoEn(lw, m) > limite) a = m; else b = m; }
+  return b;
+}
+// Potencia acústica (dB(A)) del aerogenerador: la del documento si está; si no, un valor referencial por tamaño.
+export const potenciaAcustica = (wt) => wt.lw ?? (wt.pr <= 25 ? 90 : wt.pr <= 250 ? 97 : wt.pr <= 1000 ? 102 : 106);
+
+// Sol cada 2 minutos durante el año, solo sobre 3° (criterio del SEA), ordenado por altura para buscar rápido.
+let solesFlicker = null;
+function solesSombraIntermitente(lat) {
+  if (solesFlicker?.lat === lat) return solesFlicker;
+  const lista = [];
+  for (let dia = 1; dia <= 365; dia++) for (let h = 4; h < 21; h += 2 / 60) {
+    const s = sol(lat, dia, h);
+    if (s.alt >= rad(3)) lista.push({ alt: s.alt, x: Math.cos(s.alt) * Math.sin(s.az), y: Math.cos(s.alt) * Math.cos(s.az), z: Math.sin(s.alt), dia: dia - 1 });
+  }
+  lista.sort((a, b) => a.alt - b.alt);
+  solesFlicker = { lat, lista, alts: Float64Array.from(lista, (s) => s.alt) };
+  return solesFlicker;
+}
+// Minutos de sombra intermitente por día que un rotor (buje a altura hub, radio R) proyecta sobre un receptor a 2 m,
+// en el escenario astronómico más desfavorable del SEA (sol despejado todo el día, rotor de frente al sol, girando).
+// Se evalúa hasta 10 diámetros del aerogenerador (criterio de Irlanda y el Reino Unido citado por el SEA).
+function minutosSombra(lat, [dx, dy], hub, R) {
+  const dz = hub - 2, d = Math.hypot(dx, dy, dz);
+  if (Math.hypot(dx, dy) > 20 * R) return null;
+  const ang = Math.atan(R / d), elev = Math.asin(dz / d), S = solesSombraIntermitente(lat);
+  let i = 0, j = S.alts.length;
+  while (i < j) { const m = (i + j) >> 1; if (S.alts[m] < elev - ang) i = m + 1; else j = m; }
+  const ux = dx / d, uy = dy / d, uz = dz / d, cosAng = Math.cos(ang), dias = new Float32Array(365);
+  let total = 0;
+  for (let k = i; k < S.lista.length && S.lista[k].alt <= elev + ang; k++) {
+    const s = S.lista[k];
+    if (s.x * ux + s.y * uy + s.z * uz >= cosAng) { dias[s.dia] += 2; total += 2; }
+  }
+  return total ? dias : null;
+}
+
+// Restricciones de un conjunto de viviendas para la ubicación de aerogeneradores. op: { distMin (m), ruido: { limite
+// (dB(A)) } o null, sombra: true/false }. Devuelve funciones para probar y sumar cada posición (metros locales).
+export function restriccionesViviendas(pts, viviendas, op) {
+  if (!viviendas?.length) return null;
+  const pr = proyeccion(centro(pts)), casas = viviendas.map(pr.a), lat = centro(pts)[0];
+  return {
+    casas, op,
+    // ¿Respeta la distancia mínima?
+    lejos: ([x, y]) => casas.every(([cx, cy]) => Math.hypot(x - cx, y - cy) >= op.distMin),
+    // Aporte de un aerogenerador en p: ruido (intensidad relativa) y minutos de sombra por día en cada vivienda.
+    aporte([x, y], wt) {
+      const lw = potenciaAcustica(wt), ruido = op.ruido ? casas.map(([cx, cy]) => 10 ** (ruidoEn(lw, Math.hypot(x - cx, y - cy, wt.hub - 2)) / 10)) : null;
+      const sombra = op.sombra ? casas.map(([cx, cy]) => minutosSombra(lat, [x - cx, y - cy], wt.hub, wt.rotor / 2)) : null;
+      return { ruido, sombra };
+    },
+    estado: () => ({ ruido: new Float64Array(casas.length), sombraDia: casas.map(() => new Float32Array(365)), sombraAnual: new Float64Array(casas.length) }),
+    // ¿Cabe este aporte con lo que ya hay? (30 h/año y 30 min/día de sombra; ruido bajo el límite)
+    cabe(est, a) {
+      for (let i = 0; i < casas.length; i++) {
+        if (a.ruido && 10 * Math.log10(est.ruido[i] + a.ruido[i]) > op.ruido.limite) return false;
+        const m = a.sombra?.[i];
+        if (m) {
+          let suma = est.sombraAnual[i];
+          for (let dd = 0; dd < 365; dd++) { if (est.sombraDia[i][dd] + m[dd] > 30) return false; suma += m[dd]; }
+          if (suma > 30 * 60) return false;
+        }
+      }
+      return true;
+    },
+    sumar(est, a) {
+      for (let i = 0; i < casas.length; i++) {
+        if (a.ruido) est.ruido[i] += a.ruido[i];
+        const m = a.sombra?.[i];
+        if (m) for (let dd = 0; dd < 365; dd++) { est.sombraDia[i][dd] += m[dd]; est.sombraAnual[i] += m[dd]; }
+      }
+    },
+  };
+}
+
+// Verificación de un layout: distancia mínima a la vivienda más cercana, ruido máximo en una vivienda y sombra
+// intermitente máxima (h/año y min/día), con los aerogeneradores en metros locales.
+export function verificarViviendas(pts, viviendas, turb, wt, normas) {
+  const r = restriccionesViviendas(pts, viviendas, { distMin: 0, ruido: { limite: 999 }, sombra: !!normas?.sombra });
+  if (!r) return null;
+  const est = r.estado();
+  let dist = Infinity;
+  for (const t of turb) { r.sumar(est, r.aporte(t, wt)); for (const [cx, cy] of r.casas) dist = Math.min(dist, Math.hypot(t[0] - cx, t[1] - cy)); }
+  let ruido = -Infinity, anual = 0, dia = 0;
+  r.casas.forEach((_, i) => {
+    ruido = Math.max(ruido, est.ruido[i] > 0 ? 10 * Math.log10(est.ruido[i]) : -Infinity);
+    anual = Math.max(anual, est.sombraAnual[i] / 60); dia = Math.max(dia, ...est.sombraDia[i]);
+  });
+  return { dist, ruido, anual, dia };
+}
+
 /* ---------- Estelas entre aerogeneradores (modelo de Jensen/Katić) ---------- */
 
 // Rosa de 10°; potencia tabulada para multiplicadores del viento de 0,4 a 1,6 (relieve × estelas), cada 0,01.
@@ -437,10 +559,14 @@ function solape(r1, r2, d) {                       // área común de dos círcu
 // δ = (1 − √(1 − Ct))·(R/(R + k·x))²·(área del rotor dentro de la estela), sumados en cuadratura.
 // Devuelve el orden y la eficiencia del parque por sector (columna NSEC: promedio anual) para n = 0..nMax.
 // ponytail: Ct constante y terreno plano; con separaciones ≥ 4D un modelo más fino (Bastankhah, Ct(v)) cambia poco.
-export function estelaParque(pts, posiciones, { D, wt, clima, eje, rel = null }) {
+export function estelaParque(pts, posiciones, { D, wt, clima, eje, rel = null, viviendas = null, normas = null }) {
   const { sec, g } = tablaEstela(wt, clima, eje);
   const pr = proyeccion(centro(pts)), todos = posiciones.map(pr.a);
-  const idx = todos.map((_, i) => i).sort((a, b) => Math.hypot(...todos[a]) - Math.hypot(...todos[b])).slice(0, MAX_CAND);
+  // Restricciones de las viviendas: fuera de la distancia mínima, y cada nuevo aerogenerador debe dejar a todas bajo
+  // el límite de ruido y de sombra intermitente; si no, esa posición queda descartada.
+  const restr = normas && restriccionesViviendas(pts, viviendas, normas);
+  const idx = todos.map((_, i) => i).filter((i) => !restr || restr.lejos(todos[i]))
+    .sort((a, b) => Math.hypot(...todos[a]) - Math.hypot(...todos[b])).slice(0, MAX_CAND);
   const ct = ctEfectivo(wt, clima), P = idx.length, pos = idx.map((i) => todos[i]), R = D / 2, A = 1 - Math.sqrt(1 - ct);
   const fr = factoresRelieve(rel, pos);                       // aceleración del viento por el relieve (o null)
   const vec = Array.from({ length: P }, () => []);          // vec[j]: {k, dout: déficit que j causa en k por sector}
@@ -476,9 +602,18 @@ export function estelaParque(pts, posiciones, { D, wt, clima, eje, rel = null })
   for (let c = 0; c < P; c++) gan[c] = calcular(c);
   const orden = [], eta = new Float32Array((nMax + 1) * S1).fill(1), etaRelieve = new Float32Array(nMax + 1).fill(1);
   let sumaRel = 0;
+  const estR = restr && restr.estado(), descartado = new Uint8Array(P), aportes = new Map();
   for (let n = 1; n <= nMax; n++) {
     let c = -1;
-    for (let i = 0; i < P; i++) if (!elegido[i] && (c < 0 || gan[i] > gan[c])) c = i;
+    for (;;) {
+      c = -1;
+      for (let i = 0; i < P; i++) if (!elegido[i] && !descartado[i] && (c < 0 || gan[i] > gan[c])) c = i;
+      if (c < 0 || !restr) break;
+      if (!aportes.has(c)) aportes.set(c, restr.aporte(pos[c], wt));
+      if (restr.cabe(estR, aportes.get(c))) { restr.sumar(estR, aportes.get(c)); break; }
+      descartado[c] = 1;                       // las restricciones solo se endurecen al agregar más: no vuelve a caber
+    }
+    if (c < 0) break;
     elegido[c] = 1; orden.push(c);
     const cambia = new Set();
     for (const { k, dout } of vec[c]) {
@@ -498,9 +633,12 @@ export function estelaParque(pts, posiciones, { D, wt, clima, eje, rel = null })
     etaRelieve[n] = g0 ? sumaRel / (n * g0) : 1;
   }
   const usados = new Set(orden.map((c) => idx[c]));
+  const nFinal = orden.length;
   return {
-    orden: [...orden.map((c) => posiciones[idx[c]]), ...posiciones.filter((_, i) => !usados.has(i))],
-    eta, etaRelieve, S: NSEC, nMax, sec, conDireccion: !!sec, ct, conRelieve: !!fr,
+    // Con restricciones, solo cuentan las posiciones elegidas (las demás no caben con las viviendas).
+    orden: restr ? orden.map((c) => posiciones[idx[c]]) : [...orden.map((c) => posiciones[idx[c]]), ...posiciones.filter((_, i) => !usados.has(i))],
+    eta: eta.slice(0, (nFinal + 1) * S1), etaRelieve: etaRelieve.slice(0, nFinal + 1), S: NSEC, nMax: nFinal, sec, conDireccion: !!sec, ct, conRelieve: !!fr,
+    restringido: !!restr, nPermitidos: restr ? nFinal : null, casas: restr?.casas,
   };
 }
 // Factor anual del parque con los primeros n aerogeneradores: energía con relieve y estelas / la de n aerogeneradores
@@ -671,16 +809,28 @@ export function mapaDistribucion(el) {
   let encuadre = "";
   return {
     mapa,
-    pintar(pts, posiciones, usados, radioM) {
+    pintar(pts, posiciones, usados, radioM, casas = null) {
       capa.clearLayers();
       if (!pts) return;
       const pol = L.polygon(pts, { color: "#E9A23B", weight: 2, fillColor: "#E9A23B", fillOpacity: 0.18 }).addTo(capa);
+      if (casas) pintarCasas(capa, casas);
       posiciones.slice(0, 3000).forEach((p, i) => L.circle(p, { radius: radioM, color: "#FFFFFF", weight: 1.5,
         fillColor: i < usados ? "#2A9D8F" : "#FFFFFF", fillOpacity: i < usados ? 0.95 : 0.35 }).addTo(capa));
       const clave = JSON.stringify(pts);
       if (clave !== encuadre) { encuadre = clave; mapa.fitBounds(pol.getBounds(), { padding: [20, 20] }); }
     },
   };
+}
+
+// Viviendas con su área de exclusión (distancia mínima, rojo) y el anillo donde un solo aerogenerador llega al límite
+// de ruido (naranjo punteado). casas: { lista, radio, radioRuido, alClic }.
+function pintarCasas(capa, { lista, radio, radioRuido, alClic }) {
+  lista.forEach((p, i) => {
+    if (radio > 0) L.circle(p, { radius: radio, color: "#C62828", weight: 1, fillColor: "#E53935", fillOpacity: 0.22, interactive: false }).addTo(capa);
+    if (radioRuido > 0) L.circle(p, { radius: radioRuido, color: "#EF6C00", weight: 1.2, dashArray: "5 4", fill: false, interactive: false }).addTo(capa);
+    const m = L.circleMarker(p, { radius: 4, color: "#FFFFFF", weight: 1.5, fillColor: "#B71C1C", fillOpacity: 1 }).addTo(capa);
+    if (alClic) m.on("click", (e) => { L.DomEvent.stop(e); alClic(i); });
+  });
 }
 
 // Mapa con dibujo de polígonos: clic agrega un vértice; clic en el primero, doble clic o cerrar() termina la zona.
@@ -696,8 +846,8 @@ export function crearMapa(el, { alCerrar, alAviso, alCambiarModo }) {
   L.control.scale({ imperial: false }).addTo(mapa);
   L.rectangle(limites, { color: "#1F5FAD", weight: 1.5, dashArray: "6 4", fill: false, interactive: false }).addTo(mapa);
 
-  let pts = [], dibujando = false;
-  const capa = L.layerGroup().addTo(mapa);
+  let pts = [], dibujando = false, poniendoCasas = null;
+  const capa = L.layerGroup().addTo(mapa), capaCasas = L.layerGroup().addTo(mapa);
   const pintar = (cerrado, color = "#C2410C") => {
     capa.clearLayers();
     if (cerrado && pts.length >= 3) L.polygon(pts, { color, weight: 2, fillOpacity: 0.25 }).addTo(capa);
@@ -714,6 +864,7 @@ export function crearMapa(el, { alCerrar, alAviso, alCambiarModo }) {
     alCambiarModo?.(v, pts.length);
   };
   mapa.on("click", (e) => {
+    if (poniendoCasas && !dibujando) { poniendoCasas([e.latlng.lat, e.latlng.lng]); return; }
     if (!dibujando) return;
     const p = [e.latlng.lat, e.latlng.lng];
     if (!enRegion(p)) { alAviso?.("Ese punto está fuera de la región de prueba (Maule a la Araucanía, rectángulo punteado)."); return; }
@@ -735,6 +886,9 @@ export function crearMapa(el, { alCerrar, alAviso, alCambiarModo }) {
       alCerrar(pts.slice());
     },
     marcar(valida) { pintar(true, valida ? "#C2410C" : "#9B2C2C"); },
+    casas(c) { capaCasas.clearLayers(); if (c) pintarCasas(capaCasas, c); },
+    // Modo para agregar viviendas con clic (alAgregar(p)); null lo apaga.
+    modoCasas(alAgregar) { poniendoCasas = alAgregar; el.classList.toggle("dibujando", !!alAgregar); },
   };
   return api;
 }

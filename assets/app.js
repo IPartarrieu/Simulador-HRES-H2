@@ -1,10 +1,10 @@
 // Página del Simulador HRES-H2: arma el caso con lo que elige la persona, reparte las simulaciones entre
 // Web Workers, ejecuta el método de optimización (uno o varios objetivos) y muestra los resultados.
-import { CATALOGO, MODULOS, NOMBRES, ECONOMIA_TESIS, FUENTES, OBJETIVOS_MO, potenciaPV, potenciaWT, factorFrio, radiacionPanel, inclinacionOptima, limitesPorDefecto, flujoCaja, crf, tasaReal } from "./model.js?v=20261016f";
-import { monteCarlo, genetico, shade, pso, gwo, woa, eo, nsga2, mopso, aptitud, PENALIZACION } from "./optimizers.js?v=20261016f";
-import * as dem from "./demand.js?v=20261016f";
-import { svgDiagrama, svgLayout, descargarSVG, descargarPNG, descargar } from "./diagram.js?v=20261016f";
-import * as zona from "./zona.js?v=20261016f";
+import { CATALOGO, MODULOS, NOMBRES, ECONOMIA_TESIS, FUENTES, OBJETIVOS_MO, potenciaPV, potenciaWT, factorFrio, radiacionPanel, inclinacionOptima, limitesPorDefecto, flujoCaja, crf, tasaReal } from "./model.js?v=20261016g";
+import { monteCarlo, genetico, shade, pso, gwo, woa, eo, nsga2, mopso, aptitud, PENALIZACION } from "./optimizers.js?v=20261016g";
+import * as dem from "./demand.js?v=20261016g";
+import { svgDiagrama, svgLayout, descargarSVG, descargarPNG, descargar } from "./diagram.js?v=20261016g";
+import * as zona from "./zona.js?v=20261016g";
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
@@ -116,6 +116,7 @@ const METODOS = {
 
 const estado = {
   optEquipo: {},                     // módulos en que el optimizador elige el equipo
+  viviendas: [],                     // [lat, lon] de las viviendas cercanas (restricciones ambientales)
   demanda: null, demandaNombre: "", demandaTipo: "ejemplo",
   recurso: "tesis", clima: null, climaNombre: "",
   arq: { wt: true, pv: true, hess: true, bat: false, dg: false },
@@ -201,6 +202,25 @@ function nombreRecurso() {
   if (estado.recurso === "era5") return "ERA5 de ejemplo lat. 45°S (2018)";
   return estado.climaNombre;
 }
+
+// Restricciones ambientales con las viviendas marcadas (null si no hay viviendas). Ruido: D.S. 38/2011, zona rural,
+// nocturno: el menor entre el ruido de fondo + 10 dB(A) y 50 dB(A) (Zona III).
+function leerNormas() {
+  if (!estado.viviendas.length) return null;
+  const fondo = num("#nr-fondo");
+  return { distMin: Math.max(0, num("#nr-dist")), ruido: $("#nr-ruido").checked ? { limite: Math.min(fondo + 10, 50), fondo } : null, sombra: $("#nr-sombra").checked };
+}
+const claveNormas = () => JSON.stringify([estado.viviendas, leerNormas()]);
+function pintarViviendas() {
+  const n = leerNormas(), wt = wtModelo();
+  const c = estado.viviendas.length ? { lista: estado.viviendas, radio: n?.distMin || 0,
+    radioRuido: n?.ruido ? zona.distanciaRuido(zona.potenciaAcustica(wt), n.ruido.limite) : 0,
+    alClic: (i) => { estado.viviendas.splice(i, 1); cambioViviendas(); } } : null;
+  mapaZona?.casas(c);
+  estado.casasMapa = c;
+  $("#viv-estado").textContent = estado.viviendas.length ? `${fmt(estado.viviendas.length)} viviendas marcadas.` : "Sin viviendas marcadas: no se aplican restricciones ambientales.";
+}
+function cambioViviendas() { pintarViviendas(); renderDistribucion(); cambiosGenerales(); }
 
 // Equipos candidatos de un módulo: el elegido en la página primero y, si el optimizador elige el equipo, el resto del
 // catálogo. Con las series de ejemplo de lat. 45°S, el aerogenerador y el panel quedan fijos.
@@ -426,6 +446,31 @@ function iniciarZona() {
   $("#zona-cerrar").addEventListener("click", () => mapaZona.cerrar());
   $("#zona-deshacer").addEventListener("click", () => mapaZona.deshacer());
   $("#zona-borrar").addEventListener("click", () => mapaZona.borrar());
+  $("#viv-osm").addEventListener("click", async () => {
+    if (!estado.zona) return;
+    estadoTexto("#viv-estado", "Buscando edificios en OpenStreetMap…");
+    try {
+      const nuevas = await zona.viviendasOSM(estado.zona.pts);
+      const clave = (p) => p.map((v) => v.toFixed(5)).join(",");
+      const ya = new Set(estado.viviendas.map(clave));
+      estado.viviendas.push(...nuevas.filter((p) => !ya.has(clave(p))));
+      cambioViviendas();
+      if (!nuevas.length) estadoTexto("#viv-estado", "OpenStreetMap no tiene edificios registrados aquí: agrega las viviendas a mano con la vista satelital.", "warn");
+    } catch (err) { estadoTexto("#viv-estado", `No se pudo consultar OpenStreetMap: ${err.message}`, "err"); }
+  });
+  $("#viv-agregar").addEventListener("click", (e) => {
+    const activo = e.currentTarget.textContent.startsWith("Terminar");
+    e.currentTarget.textContent = activo ? "Agregar con clic" : "Terminar de agregar";
+    mapaZona.modoCasas(activo ? null : (p) => { estado.viviendas.push(p); cambioViviendas(); });
+  });
+  $("#viv-borrar").addEventListener("click", () => { estado.viviendas = []; cambioViviendas(); });
+  ["#nr-dist", "#nr-ruido", "#nr-fondo", "#nr-sombra"].forEach((s) => $(s).addEventListener("change", cambioViviendas));
+  $("#nr-lw").addEventListener("change", () => {
+    const v = num("#nr-lw");
+    if (v >= 60 && v <= 120) estado.equipos.wt.lw = v;
+    cambioViviendas();
+  });
+  pintarViviendas();
 }
 
 async function cerrarZona(pts) {
@@ -441,6 +486,7 @@ async function cerrarZona(pts) {
   const c = zona.centro(pts);
   const cercana = dem.ESTACIONES.map((e) => ({ ...e, km: zona.distanciaKm(c, [e.lat, e.lon]) })).sort((a, b) => a.km - b.km)[0];
   estado.zona = { pts, area, centro: c, elev: null, cercana };
+  $("#viv-osm").disabled = false;
   $("#est-id").value = cercana.id;
   $("#ub-lat").value = c[0].toFixed(3); $("#ub-lon").value = c[1].toFixed(3);
   estadoTexto("#zona-estado", "Consultando la elevación del terreno…");
@@ -481,10 +527,10 @@ function distribucion() {
   const lay = cacheLayout.lay;
   const paneles = zona.distribucionPaneles(z.centro[0], { areaPanelM2: pv.pr / (pv.eff / 100), aprovechamiento: Math.min(1, Math.max(0.1, num("#lay-aprov") / 100)),
     montaje: montaje() === "seguidor" ? "seguidor" : "fija", beta: betaMontaje(), gcrSeg: gcrSeguidor() });
-  const estela = cacheEstela.lay === lay && cacheEstela.wt === JSON.stringify(wtModelo()) && cacheEstela.fuente === fuenteViento() ? cacheEstela.val : null;
+  const estela = cacheEstela.lay === lay && cacheEstela.wt === JSON.stringify(wtModelo()) && cacheEstela.fuente === fuenteViento() && cacheEstela.normas === claveNormas() ? cacheEstela.val : null;
   return {
     ...lay, paneles, op, estela, posiciones: estela ? estela.orden : lay.posiciones,
-    nWt: lay.demasiadas ? Math.floor(z.area / lay.celdaM2) : lay.posiciones.length,
+    nWt: estela?.restringido ? estela.nPermitidos : lay.demasiadas ? Math.floor(z.area / lay.celdaM2) : lay.posiciones.length,
     nPv: Math.floor(z.area / paneles.m2PorPanel),
   };
 }
@@ -495,10 +541,10 @@ async function estelaActual(d) {
   const clima = estado.recurso === "tesis" ? (await dem.datosEjemplo()).era5 : await climaActual();
   if (!clima) return null;
   const lay = cacheLayout.lay, wt = JSON.stringify(wtModelo());
-  if (cacheEstela.lay !== lay || cacheEstela.wt !== wt || cacheEstela.fuente !== fuenteViento()) {
+  if (cacheEstela.lay !== lay || cacheEstela.wt !== wt || cacheEstela.fuente !== fuenteViento() || cacheEstela.normas !== claveNormas()) {
     const rel = await zona.relieve(estado.zona.pts).catch(() => null);      // sin relieve: viento uniforme
-    const val = zona.estelaParque(estado.zona.pts, lay.posiciones, { D: d.op.D, wt: wtModelo(), clima, eje: d.op.eje, rel });
-    Object.assign(cacheEstela, { lay, wt, fuente: fuenteViento(), val });
+    const val = zona.estelaParque(estado.zona.pts, lay.posiciones, { D: d.op.D, wt: wtModelo(), clima, eje: d.op.eje, rel, viviendas: estado.viviendas, normas: leerNormas() });
+    Object.assign(cacheEstela, { lay, wt, fuente: fuenteViento(), normas: claveNormas(), val });
   }
   return cacheEstela.val;
 }
@@ -516,7 +562,12 @@ function renderDistribucion() {
   const r = estado.resultado;
   const usados = r && r.zona === z ? r.cfg[0] : 0;
   if (!mapaLayout && typeof L !== "undefined" && !$("#panel-equipos").hidden) mapaLayout = zona.mapaDistribucion($("#mapa-layout"));
-  mapaLayout?.pintar(z.pts, d.posiciones, usados, wt.rotor / 2);
+  mapaLayout?.pintar(z.pts, d.posiciones, usados, wt.rotor / 2, estado.casasMapa && { ...estado.casasMapa, alClic: null });
+  if (document.activeElement !== $("#nr-lw")) $("#nr-lw").value = zona.potenciaAcustica(wt);
+  const nn = leerNormas();
+  $("#nr-nota").textContent = (nn ? `${fmt(estado.viviendas.length)} viviendas. ${nn.ruido ? `Límite de ruido nocturno en cada vivienda: ${fmt(nn.ruido.limite)} dB(A) (el menor entre fondo + 10 y 50). ` : ""}`
+    : "Marca las viviendas cercanas en la pestaña Zona para aplicar estas restricciones. ") +
+    `Ninguna ley chilena vigente fija una distancia mínima entre aerogeneradores y viviendas: los 300 m son un criterio de diseño (un proyecto de ley de 2026 propone 5000 m). Lo vigente es el D.S. 38/2011 del MMA, que limita el ruido medido en cada vivienda, y el criterio del SEA (2021) para la sombra intermitente. La potencia acústica ${wt.lw ? "viene de la ficha del equipo" : "es un valor referencial por tamaño: reemplázala por la del fabricante"}.`;
   const p = d.paneles, e = d.estela;
   if (!e && estado.arq.wt) estelaActual(d).then((x) => x && renderDistribucion()).catch((err) => console.error(err));
   const efic = e && [1, 5, 10, 25, e.nMax].filter((n, i, a) => n <= e.nMax && a.indexOf(n) === i)
@@ -724,7 +775,7 @@ class Pool {
   constructor(n) {
     this.pend = new Map(); this.id = 0;
     this.workers = Array.from({ length: n }, () => {
-      const w = new Worker(new URL("./worker.js?v=20261016f", import.meta.url), { type: "module" });
+      const w = new Worker(new URL("./worker.js?v=20261016g", import.meta.url), { type: "module" });
       w.onmessage = (e) => {
         const p = this.pend.get(e.data.id);
         if (!p) return;
@@ -822,8 +873,9 @@ async function armarCandidatos(d) {
     const lay = zona.distribuirAerogeneradores(pts, op);
     m.terreno = { aWt: zona.areaExclusiva(op), nWtMax: lay.demasiadas ? Math.floor(estado.zona.area / lay.celdaM2) : lay.posiciones.length };
     if (lay.demasiadas || !lay.posiciones.length) continue;
-    const e = zona.estelaParque(pts, lay.posiciones, { D: wt.rotor, wt, clima: c, eje: op.eje, rel });
+    const e = zona.estelaParque(pts, lay.posiciones, { D: wt.rotor, wt, clima: c, eje: op.eje, rel, viviendas: estado.viviendas, normas: leerNormas() });
     m.estela = { eta: e.eta, sec: e.sec, S: e.S, nMax: e.nMax };
+    if (e.restringido) m.terreno.nWtMax = e.nPermitidos;
     if (estado.arq.pv) {
       const pa = d.paneles, opF = { ...op, hub: wt.hub, beta: pa.beta, gcr: pa.gcr, seguidor: !!pa.seguidor, nMax: e.nMax };
       m.campoFV = { ...zona.interaccionPV(pts, e.orden, opF, rel), m2Panel: pa.m2PorPanel };
@@ -908,7 +960,7 @@ async function optimizar() {
     await pool.init(caso, crit);
     const evaluador = crearEvaluador(pool);
     const comun = { limites, evaluar: evaluador.evaluar, semilla, alProgresar: (p) => mostrarProgreso(p, t0, evaluador, crit), detenido: () => detener };
-    const snap = { equipos: clonar(estado.equipos), arq: clonar(estado.arq), economia: leerEconomia(), terreno: caso.terreno, zona: estado.zona, dist: distribucion(), cand: estado.candSnap };
+    const snap = { equipos: clonar(estado.equipos), arq: clonar(estado.arq), economia: leerEconomia(), terreno: caso.terreno, zona: estado.zona, dist: distribucion(), cand: estado.candSnap, viviendas: estado.viviendas.slice(), normas: leerNormas() };
     const meta = { metodo: metodo.nombre.replace(" · recomendado", ""), params, semilla, crit, snap, detenido: false };
     $("#pareto").hidden = true;
     if (metodo.mo) {
@@ -964,7 +1016,7 @@ async function simularManual() {
   const cfg = $$("#manual input").map((i) => Math.max(0, Math.round(Number(i.value) || 0)));
   const crit = { ...leerCriterio(), modo: "uno", mo: [] };
   const caso = await armarCaso();
-  const snap = { equipos: clonar(estado.equipos), arq: clonar(estado.arq), economia: leerEconomia(), terreno: caso.terreno, zona: estado.zona, dist: distribucion() };
+  const snap = { equipos: clonar(estado.equipos), arq: clonar(estado.arq), economia: leerEconomia(), terreno: caso.terreno, zona: estado.zona, dist: distribucion(), viviendas: estado.viviendas.slice(), normas: leerNormas() };
   await simularCon(caso, crit, cfg, { metodo: "Configuración ingresada a mano", crit, snap, manual: true });
 }
 
@@ -1187,10 +1239,19 @@ function renderLayoutResultado(cfg, r, meta) {
   if (cfg[0]) leyenda.push(["wt", `${fmt(cfg[0])} aerogeneradores ${equipos.wt.nombre} · rotor de ${fmt(dist.op.D, 1)} m · separación ${fmt(dist.op.sx, 1)}D × ${fmt(dist.op.sy, 1)}D`]);
   if (cfg[1]) leyenda.push(["pv", `${fmt(cfg[1])} paneles (${capacidad("pv", cfg[1], equipos)}) en ${fmt((cfg[1] * p.m2PorPanel) / 1e4, 1)} ha · ${p.seguidor ? "seguidores norte-sur" : `mesas a ${fmt(p.beta)}° hacia el norte`}, filas cada ${fmt(pitch, 1)} m`]);
   if (bloque.length) leyenda.push(["bloque", `Bloque de potencia: ${bloque.join(" · ")}`]);
+  // Viviendas: área de exclusión en el plano y verificación del resultado con los aerogeneradores elegidos.
+  const viv = meta.snap.viviendas || [], nr = meta.snap.normas;
+  if (viv.length) {
+    const prz = zona.proyeccion(zona.centro(z.pts));
+    Object.assign(geo, { casas: viv.map(prz.a), radioCasa: nr?.distMin || 0 });
+    const v = cfg[0] && geo.turb.length ? zona.verificarViviendas(z.pts, viv, geo.turb, equipos.wt, nr) : null;
+    const txt = v ? ` · más cercana a ${fmt(v.dist)} m; ruido máx. ${fmt(v.ruido, 1)} dB(A)${nr?.ruido ? ` (límite ${fmt(nr.ruido.limite)})` : ""}; sombra intermitente máx. ${fmt(v.anual, 1)} h/año y ${fmt(v.dia)} min/día` : "";
+    leyenda.push(["casa", `${fmt(viv.length)} viviendas · distancia mínima ${fmt(nr?.distMin || 0)} m${txt}`]);
+  }
   const svg = svgLayout(geo, { titulo: `Layout del sistema ${nombreArquitectura(arq)} · LCOE ${fmt(r.lcoe, 4)} USD/kWh`, eje: dist.op.eje, pitchM: pitch, leyenda });
   estado.resultado.layoutSvg = svg;
   $("#layout-res").innerHTML = svg;      // SVG armado por el propio sitio (textos escapados)
-  mostrar3D({ pts: z.pts, geo, eje: dist.op.eje, cfg, equipos, pitchM: pitch, beta: p.beta, seguidor: !!p.seguidor, largoMesa: 2 * Math.sqrt(areaMod * 1.75) });
+  mostrar3D({ pts: z.pts, geo, casas: geo.casas || [], radioCasa: geo.radioCasa || 0, eje: dist.op.eje, cfg, equipos, pitchM: pitch, beta: p.beta, seguidor: !!p.seguidor, largoMesa: 2 * Math.sqrt(areaMod * 1.75) });
   const notas = [];
   if (dist.demasiadas && cfg[0]) notas.push("Hay demasiadas posiciones posibles para dibujar los aerogeneradores: aumenta la separación o reduce la zona.");
   else if (cfg[0] > dist.posiciones.length) notas.push(`Solo caben ${fmt(dist.posiciones.length)} de los ${fmt(cfg[0])} aerogeneradores.`);
@@ -1246,7 +1307,7 @@ async function mostrar3D(op) {
   const ley = $("#leyenda-3d"); ley.replaceChildren();
   const chip = (color, texto) => { const s = document.createElement("span"), i = document.createElement("i"); i.style.background = color; s.append(i, texto); ley.appendChild(s); };
   try {
-    const m = await import("./escena3d.js?v=20261016f");
+    const m = await import("./escena3d.js?v=20261016g");
     chip("#FF8A3D", "Zona");
     if (op.cfg[0]) chip("#F7F8FA", `Aerogeneradores (${fmt(op.cfg[0])})`);
     if (op.cfg[1]) chip("#2456A6", `Paneles (${fmt(op.cfg[1])})`);
